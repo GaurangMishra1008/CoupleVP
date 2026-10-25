@@ -29,6 +29,21 @@
   .small { font-size:.85rem; color:var(--muted); }
   .warn { color:var(--warn); }
   .hidden { display:none !important; }
+  .hero { background:linear-gradient(135deg,#2a1530,#1a1a22 60%); border:1px solid #3a2340; border-radius:16px; padding:18px 16px; margin-bottom:12px; }
+  .hero-kicker { font-size:.8rem; letter-spacing:.08em; text-transform:uppercase; color:var(--accent); font-weight:600; }
+  .hero-title { font-size:clamp(1.4rem, 5vw, 2.1rem); font-weight:800; line-height:1.15; margin:6px 0 4px; word-break:break-word; }
+  .hero-sub { color:#d6d6de; font-size:.98rem; }
+  .hero-sub.warn { color:var(--warn); }
+  .pulse { animation:pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity:.45; } }
+  .pick { display:inline-block; }
+  .pick input { display:none; }
+  .eplist { list-style:none; margin:8px 0 0; padding:0; max-height:280px; overflow:auto; }
+  .eplist li button { width:100%; text-align:left; background:transparent; border:0; border-radius:8px; color:var(--fg); padding:8px 10px; font-size:.95rem; display:flex; gap:8px; align-items:center; }
+  .eplist li button:hover { background:#24242e; }
+  .eplist li.current button { background:#3a1f2c; }
+  .eplist .tag { font:600 .75rem ui-monospace,Menlo,monospace; color:var(--accent); flex:none; }
+  .eplist .who { margin-left:auto; font-size:.75rem; color:var(--muted); flex:none; }
   #log { font:12px ui-monospace,Menlo,monospace; color:var(--muted); max-height:120px; overflow:auto; white-space:pre-wrap; }
 </style>
 </head>
@@ -36,6 +51,12 @@
 <main>
   <h1>Couple Player</h1>
   <p class="sub">Watch the same video on two devices, in sync. Each device plays its own copy of the file. Only play, pause and seek commands travel between you, directly device to device.</p>
+
+  <section class="hero" id="hero" aria-live="polite">
+    <div class="hero-kicker" id="heroKicker">Not connected</div>
+    <div class="hero-title" id="heroTitle">Create a room, or join your partner's</div>
+    <div class="hero-sub" id="heroSub"></div>
+  </section>
 
   <!-- Step 1: room -->
   <section class="card" id="roomCard">
@@ -64,9 +85,15 @@
 
   <!-- Step 2: file -->
   <section class="card">
-    <div class="small" style="margin-bottom:6px">Pick the video on this device (it never leaves your device)</div>
-    <input type="file" id="fileInput" accept="video/*,.mkv">
-    <div class="small" id="fileInfo" style="margin-top:6px"></div>
+    <div class="small" style="margin-bottom:8px">Pick what to watch on this device (files never leave your device)</div>
+    <div class="row">
+      <label class="pick btn" id="movieBtn">Choose a video<input type="file" id="fileInput" accept="video/*,.mkv"></label>
+      <label class="pick btn ghost-btn" id="seriesBtn" style="background:transparent;border:1px solid #3a3a48">
+        <span id="seriesLabel">Choose a series folder</span><input type="file" id="seriesInput" multiple accept="video/*,.mkv">
+      </label>
+    </div>
+    <div class="small" id="fileInfo" style="margin-top:8px"></div>
+    <ul class="eplist hidden" id="epList"></ul>
   </section>
 
   <!-- Step 3: watch -->
@@ -80,6 +107,7 @@
 </main>
 
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="titles.js"></script>
 <script>
 (() => {
   const $ = id => document.getElementById(id);
@@ -102,9 +130,11 @@
     $('roomCard').classList.add('hidden');
     startClockSync();
     sendFileInfo();
+    if (playlist.length && epIndex >= 0) link.send({ type: 'episode', name: playlist[epIndex].file.name });
     if (isLeader) sendState('hello');
+    renderHero();
   }
-  function onLinkClose() { link = null; setStatus('Disconnected. Refresh both pages to reconnect.', ''); stopClockSync(); }
+  function onLinkClose() { link = null; partner = { presence: 'none', file: null, cantPlay: null, missing: null }; setStatus('Disconnected. Refresh both pages to reconnect.', ''); stopClockSync(); renderHero(); setHero('Disconnected', 'Your partner left', 'Refresh both pages to reconnect.', { warn: true }); }
   function onRaw(data) { try { handle(JSON.parse(data)); } catch (e) { log('bad msg', e); } }
 
   function wirePeerConn(conn) {
@@ -180,6 +210,7 @@
     $('codeOut').textContent = code;
     $('shareCard').classList.remove('hidden');
     $('roomCard').classList.add('hidden');
+    renderHero();
     const u = new URL(location.href); u.searchParams.set('room', code);
     history.replaceState(null, '', u);
   }
@@ -208,11 +239,10 @@
   let applyingRemote = 0;   // suppress echo of our own programmatic changes
   let unlocked = false;     // mobile browsers need one tap before play() works
   let pendingState = null;
-  let remoteFile = null;
 
   function sendState(why) {
     if (!link || !video.src) return;
-    link.send({ type: 'state', why, paused: video.paused, pos: video.currentTime, at: now() });
+    link.send({ type: 'state', why, paused: video.paused, pos: video.currentTime, at: now(), name: video.dataset.name });
   }
 
   function expectedPos(m) {
@@ -232,7 +262,11 @@
     if (m.paused && !video.paused) video.pause();
     if (!m.paused && video.paused) {
       try { await video.play(); }
-      catch (e) { log('play blocked', e.name); unlocked = false; pendingState = m; $('tapOverlay').classList.add('show'); }
+      catch (e) {
+        log('play failed', e.name);
+        if (e.name === 'NotAllowedError') { unlocked = false; pendingState = m; $('tapOverlay').classList.add('show'); }
+        else setTimeout(() => { if (video.paused && !m.paused) { suppress(); video.play().catch(() => {}); } }, 300); // interrupted by a seek: retry
+      }
     }
   }
 
@@ -251,7 +285,7 @@
 
   setInterval(() => {
     if (link && isLeader && video.src && !video.paused) {
-      link.send({ type: 'hb', paused: false, pos: video.currentTime, rate: video.playbackRate, at: now() });
+      link.send({ type: 'hb', paused: false, pos: video.currentTime, rate: video.playbackRate, at: now(), name: video.dataset.name });
       $('syncInfo').textContent = 'Sync: you are leading';
     }
   }, 1000);
@@ -267,18 +301,31 @@
   video.addEventListener('seeked', () => onLocalChange('seek'));
 
   // If our side stalls (buffering), pause the partner until we recover.
-  video.addEventListener('waiting', () => { if (link && !applyingRemote && isLeader) link.send({ type: 'state', why: 'buffer', paused: true, pos: video.currentTime, at: now() }); });
-  video.addEventListener('playing', () => { if (link && isLeader && !applyingRemote) sendState('resume'); });
+  // Only pause the partner if we're stuck loading for a while, not for a quick seek.
+  let stallTimer = null, stalled = false;
+  video.addEventListener('waiting', () => {
+    clearTimeout(stallTimer);
+    stallTimer = setTimeout(() => {
+      if (link && !applyingRemote && isLeader && !video.paused) { stalled = true; link.send({ type: 'state', why: 'buffer', paused: true, pos: video.currentTime, at: now(), name: video.dataset.name }); }
+    }, 1000);
+  });
+  video.addEventListener('playing', () => {
+    clearTimeout(stallTimer);
+    if (stalled && link && isLeader && !applyingRemote) sendState('resume');
+    stalled = false;
+  });
 
   function handle(m) {
     switch (m.type) {
       case 'ping': link.send({ type: 'pong', t0: m.t0, t1: now() }); break;
       case 'pong': onPong(m); break;
-      case 'state': isLeader = false; log('remote', m.why, m.paused ? 'paused' : 'playing', m.pos.toFixed(2)); applyState(m); break;
-      case 'hb': onHeartbeat(m); break;
-      case 'file': remoteFile = m; checkFiles(); break;
+      case 'state': if (otherEpisode(m)) break; isLeader = false; log('remote', m.why, m.paused ? 'paused' : 'playing', m.pos.toFixed(2)); applyState(m); break;
+      case 'hb': if (!otherEpisode(m)) onHeartbeat(m); break;
+      case 'file': partner.file = m; partner.presence = 'idle'; partner.cantPlay = null; if (partner.missing && !sameVideo(partner.missing, m.name)) partner.missing = null; renderHero(); renderEpisodes(); break;
+      case 'presence': partner.presence = m.state; renderHero(); break;
+      case 'episode': onRemoteEpisode(m); break;
       case 'need-state': sendState('sync'); break;
-      case 'cant-play': $('peerInfo').textContent = 'Your partner\'s browser can\'t play their file (' + m.name + '). They need an MP4 copy.'; $('peerInfo').className = 'small warn'; break;
+      case 'cant-play': partner.cantPlay = m.name; renderHero(); break;
     }
   }
 
@@ -289,16 +336,171 @@
   const needsRepack = f => params.has('repack') || (/\.(mkv|mk3d)$/i.test(f.name) && !video.canPlayType('video/x-matroska'));
   function setFileMsg(text, warn) { $('fileInfo').textContent = text; $('fileInfo').className = 'small' + (warn ? ' warn' : ''); }
 
-  $('fileInput').addEventListener('change', e => {
-    const f = e.target.files[0]; if (!f) return;
+  const { parseTitle, label, sortEpisodes } = window.CVPTitles;
+  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const VIDEO_EXT = /\.(mp4|m4v|mkv|mk3d|webm|mov|avi|ts|m2ts|wmv|ogv)$/i;
+  let playlist = [], epIndex = -1, autoPlayNext = false;
+  let partner = { presence: 'none', file: null, cantPlay: null, missing: null };
+
+  // Series button: a folder picker on computers, a multi-file picker on phones (iOS can't pick folders).
+  if (!isMobile && 'webkitdirectory' in document.createElement('input')) $('seriesInput').webkitdirectory = true;
+  else $('seriesLabel').textContent = 'Choose several episodes';
+
+  function loadFile(f) {
     currentFile = f;
     if (repack) { repack.destroy(); repack = null; }
     if (video.src && mode === 'native') URL.revokeObjectURL(video.src);
     video.dataset.name = f.name; video.dataset.size = f.size;
-    $('tapOverlay').classList.add('show');
+    if (!unlocked) $('tapOverlay').classList.add('show');
+    setFileMsg(f.name + ': loading…');
     if (needsRepack(f)) startRepack(f);
     else { mode = 'native'; video.src = URL.createObjectURL(f); }
+    renderHero();
+  }
+
+  $('fileInput').addEventListener('change', e => {
+    const f = e.target.files[0]; if (!f) return sendPresence('idle');
+    playlist = []; epIndex = -1; renderEpisodes();
+    loadFile(f);
+    if (link) link.send({ type: 'episode', name: f.name }); // a partner with a series folder follows along
   });
+
+  $('seriesInput').addEventListener('change', e => {
+    const files = [...e.target.files].filter(f => VIDEO_EXT.test(f.name) && !f.name.startsWith('.'));
+    if (!files.length) { setFileMsg('No video files found in that selection.', true); return sendPresence('idle'); }
+    playlist = sortEpisodes(files);
+    // Start where the partner is, if we have that episode; else the first one.
+    const pk = partner.file && parseTitle(partner.file.name);
+    let i = pk ? findEpisode(pk, partner.file.name) : -1;
+    playEpisode(i >= 0 ? i : 0, { announce: i < 0 });
+  });
+
+  // "Your partner is looking for a video": tell them when we open a picker, and when we back out of it.
+  for (const id of ['fileInput', 'seriesInput']) {
+    $(id).addEventListener('click', () => { sendPresence('browsing'); armPickerFallback(); });
+    $(id).addEventListener('cancel', () => sendPresence('idle'));
+  }
+  let pickerTimer = null;
+  function armPickerFallback() {
+    // Some browsers don't fire "cancel": when focus comes back with nothing picked, we're done browsing.
+    const onFocus = () => { clearTimeout(pickerTimer); pickerTimer = setTimeout(() => sendPresence('idle'), 1500); window.removeEventListener('focus', onFocus); };
+    window.addEventListener('focus', onFocus);
+  }
+  function sendPresence(state) { clearTimeout(pickerTimer); if (link) link.send({ type: 'presence', state }); }
+
+  function findEpisode(t, name) {
+    if (!playlist.length) return -1;
+    if (t && t.kind === 'series') {
+      const i = playlist.findIndex(e => e.t.kind === 'series' && e.t.season === t.season && e.t.episode === t.episode);
+      if (i >= 0) return i;
+    }
+    const norm = n => n.toLowerCase().replace(/\.[^.]+$/, '').replace(/[^a-z0-9]/g, '');
+    return playlist.findIndex(e => norm(e.file.name) === norm(name));
+  }
+
+  function playEpisode(i, { announce = true, autoplay = false } = {}) {
+    if (i < 0 || i >= playlist.length) return;
+    epIndex = i;
+    autoPlayNext = autoplay;
+    partner.missing = null;
+    loadFile(playlist[i].file);
+    renderEpisodes();
+    if (announce && link) link.send({ type: 'episode', name: playlist[i].file.name, play: autoplay });
+  }
+
+  function renderEpisodes() {
+    const ul = $('epList');
+    ul.classList.toggle('hidden', !playlist.length);
+    ul.innerHTML = '';
+    const pName = partner.file && partner.file.name;
+    playlist.forEach((e, i) => {
+      const li = document.createElement('li');
+      if (i === epIndex) li.className = 'current';
+      const b = document.createElement('button');
+      const tag = e.t.kind === 'series' ? e.t.key : String(i + 1).padStart(2, '0');
+      const name = e.t.kind === 'series' ? (e.t.episodeTitle || 'Episode ' + e.t.episode) : e.file.name;
+      const partnerHere = pName && findEpisodeIn(e, pName);
+      b.innerHTML = `<span class="tag"></span><span class="nm"></span><span class="who"></span>`;
+      b.querySelector('.tag').textContent = tag;
+      b.querySelector('.nm').textContent = name;
+      b.querySelector('.who').textContent = (i === epIndex ? 'you' : '') + (i === epIndex && partnerHere ? ' + ' : '') + (partnerHere ? 'partner' : '');
+      b.onclick = () => playEpisode(i, { announce: true });
+      li.appendChild(b); ul.appendChild(li);
+    });
+  }
+  function findEpisodeIn(e, name) {
+    const t = parseTitle(name);
+    if (t.kind === 'series' && e.t.kind === 'series') return t.season === e.t.season && t.episode === e.t.episode;
+    return e.file.name === name;
+  }
+
+  // Next episode starts by itself, for both of you.
+  video.addEventListener('ended', () => {
+    if (playlist.length && epIndex + 1 < playlist.length) playEpisode(epIndex + 1, { announce: true, autoplay: true });
+  });
+
+  function onRemoteEpisode(m) {
+    partner.file = { name: m.name, duration: 0 };
+    partner.presence = 'idle';
+    if (!playlist.length) { renderHero(); return; }
+    const t = parseTitle(m.name);
+    const i = findEpisode(t, m.name);
+    if (i < 0) { partner.missing = m.name; renderHero(); renderEpisodes(); return; }
+    if (i !== epIndex) playEpisode(i, { announce: false, autoplay: !!m.play });
+    else { renderHero(); renderEpisodes(); }
+  }
+
+  // Ignore play/pause/position from a partner who is on a different episode (e.g. mid-switch).
+  function otherEpisode(m) {
+    if (!m.name || !currentFile) return false;
+    const a = parseTitle(m.name), b = parseTitle(currentFile.name);
+    return a.kind === 'series' && b.kind === 'series' && (a.season !== b.season || a.episode !== b.episode);
+  }
+
+  // ---------- the big banner ----------
+  function setHero(kicker, title, sub, opts = {}) {
+    $('heroKicker').textContent = kicker;
+    $('heroTitle').textContent = title;
+    $('heroTitle').classList.toggle('pulse', !!opts.pulse);
+    $('heroSub').textContent = sub || '';
+    $('heroSub').className = 'hero-sub' + (opts.warn ? ' warn' : '');
+  }
+  function describe(name) {
+    const t = parseTitle(name);
+    if (t.kind === 'series') return { t, title: t.show, sub: `Season ${t.season} · Episode ${t.episode}` + (t.episodeTitle ? ` · ${t.episodeTitle}` : ''), what: 'the series' };
+    return { t, title: t.title + (t.year ? ` (${t.year})` : ''), sub: 'Movie', what: 'the movie' };
+  }
+  function sameVideo(a, b) {
+    const ta = parseTitle(a), tb = parseTitle(b);
+    if (ta.kind === 'series' && tb.kind === 'series') return ta.season === tb.season && ta.episode === tb.episode;
+    return a === b || label(ta).toLowerCase() === label(tb).toLowerCase();
+  }
+  function renderHero() {
+    const mine = currentFile && currentFile.name;
+    if (!link) {
+      const waiting = $('shareCard') && !$('shareCard').classList.contains('hidden');
+      return setHero(waiting ? 'Room open' : 'Not connected', waiting ? 'Waiting for your partner to join…' : 'Create a room, or join your partner\'s', waiting ? 'Share the link or the code below.' : '', { pulse: waiting });
+    }
+    if (partner.presence === 'browsing') return setHero('Your partner', 'is looking for a video…', mine ? 'You picked ' + label(parseTitle(mine)) + '.' : '', { pulse: true });
+    if (partner.cantPlay) return setHero('Your partner', 'can\'t play their file', partner.cantPlay + ' needs to be converted to MP4 on their side.', { warn: true });
+    if (partner.missing) {
+      const d = describe(partner.missing);
+      return setHero('Your partner moved to', d.title, d.sub + ' · You don\'t have this episode in your selection.', { warn: true });
+    }
+    if (!partner.file) {
+      if (mine) { const d = describe(mine); return setHero('You picked', d.title, d.sub + ' · Waiting for your partner to pick the same file…', { pulse: true }); }
+      return setHero('Connected', 'Pick something to watch', 'Your partner hasn\'t chosen a video yet either.');
+    }
+    const d = describe(partner.file.name);
+    if (!mine) return setHero('Your partner is watching ' + d.what, d.title, d.sub + ' · Find the same file on this device to join in.');
+    if (!sameVideo(mine, partner.file.name)) {
+      const me = describe(mine);
+      return setHero('Your partner is watching ' + d.what, d.title, `${d.sub} · But you picked ${me.title}${me.t.kind === 'series' ? ' ' + me.t.key : ''}. Pick the same one.`, { warn: true });
+    }
+    let sub = d.sub;
+    if (partner.file.duration && video.duration && Math.abs(video.duration - partner.file.duration) > 2) { sub += ' · Lengths differ a bit, so this may be a different cut.'; }
+    return setHero('You\'re both watching ' + d.what, d.title, sub, { warn: sub.includes('differ') });
+  }
 
   async function startRepack(f) {
     mode = 'repack';
@@ -338,17 +540,13 @@
   });
   video.addEventListener('loadedmetadata', () => {
     showFileOk();
+    if (autoPlayNext) { autoPlayNext = false; video.play().catch(() => {}); }
+    else if (pendingState && unlocked) { const p = pendingState; pendingState = null; applyState(p); }
     sendFileInfo(); checkFiles();
     if (link) link.send({ type: 'need-state' });
   });
   function sendFileInfo() { if (link && video.src && video.duration) link.send({ type: 'file', name: video.dataset.name, size: +video.dataset.size, duration: video.duration }); }
-  function checkFiles() {
-    if (!remoteFile) return;
-    let msg = `Partner has: ${remoteFile.name} · ${fmt(remoteFile.duration)}`;
-    if (video.duration && Math.abs(video.duration - remoteFile.duration) > 1) msg += ' (looks like a different file!)';
-    $('peerInfo').textContent = msg;
-    $('peerInfo').className = 'small' + (msg.includes('different') ? ' warn' : '');
-  }
+  function checkFiles() { renderHero(); }
   const fmt = s => { s = Math.round(s || 0); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60; return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0'); };
 
   // One tap unlocks programmatic play on iOS/Android, then catches up to the partner.

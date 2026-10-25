@@ -12,6 +12,10 @@ A single web page that keeps the same video in sync on two devices. Nothing is u
 - **Mobile autoplay.** Phones block playback that wasn't started by a tap, so each person taps "Tap to start syncing" once.
 - **File check.** Warns if the two videos have different lengths.
 
+## Partner status and series
+- A big banner at the top shows what your partner is doing: "looking for a video", or "watching the movie *Inception (2010)*" / "the series *Breaking Bad*, Season 1 · Episode 3". The name comes from the file name (`titles.js` strips quality tags, groups, years, and reads S01E03 / 1x03 patterns). It warns when you two picked different things.
+- **Choose a series folder** (on a computer) or **Choose several episodes** (on phones, which can't pick folders). Episodes are sorted by season/episode. Picking an episode on one side switches the other side to the same episode, matched by season and episode number, so file names don't have to be identical. When an episode ends, both move on to the next one together.
+
 ## Use
 1. Open the page on both devices (must be served over https, e.g. GitHub Pages).
 2. Phone A: **Create room** → **Share link** (or read out the 6-letter code).
