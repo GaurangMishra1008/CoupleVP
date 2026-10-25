@@ -49,12 +49,50 @@
   .mode.on { background:var(--accent); border-color:var(--accent); }
   .yt-stage { aspect-ratio:16/9; background:#000; border-radius:12px; overflow:hidden; }
   .yt-stage iframe, .yt-stage #ytPlayer { width:100%; height:100%; display:block; border:0; }
-  .audio-art { display:none; text-align:center; padding:28px 16px 18px; background:linear-gradient(160deg,#3a1f2c,#1a1a22); border-radius:12px 12px 0 0; }
-  .audio-art .note { font-size:3rem; line-height:1; color:var(--accent); }
-  .audio-art .song { font-size:1.3rem; font-weight:800; margin-top:8px; word-break:break-word; }
-  .audio-art .artist { color:var(--muted); margin-top:2px; }
-  .stage.audio .audio-art { display:block; }
-  .stage.audio video { height:56px; border-radius:0 0 12px 12px; }
+  .pick.outline { background:transparent; border:1px solid #3a3a48; }
+  /* ---- music player ---- */
+  .music { position:relative; border-radius:20px; padding:18px 16px 16px; margin-bottom:12px; text-align:center; overflow:hidden;
+    background:linear-gradient(135deg,#ff5c8a,#8b5cf6,#f59e0b,#ec4899); background-size:300% 300%; animation:grad 14s ease infinite; color:#fff; }
+  @keyframes grad { 0%,100% { background-position:0% 50%; } 50% { background-position:100% 50%; } }
+  .music::before { content:""; position:absolute; inset:0; background:rgba(15,10,25,.35); pointer-events:none; }
+  .music > *:not(.overlay) { position:relative; }
+  .music-pick { justify-content:center; }
+  .glass { background:rgba(255,255,255,.18) !important; border:1px solid rgba(255,255,255,.35) !important; color:#fff !important; backdrop-filter:blur(6px); }
+  .vinyl-wrap { display:flex; justify-content:center; margin:18px 0 12px; }
+  .vinyl { width:min(58vw,220px); aspect-ratio:1; border-radius:50%; display:flex; align-items:center; justify-content:center;
+    background:repeating-radial-gradient(circle,#111 0 2px,#1c1c1c 2px 4px); box-shadow:0 10px 30px rgba(0,0,0,.45), inset 0 0 0 6px #0a0a0a;
+    animation:spin 6s linear infinite; animation-play-state:paused; }
+  .music.playing .vinyl { animation-play-state:running; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .vinyl-label { width:38%; aspect-ratio:1; border-radius:50%; background:radial-gradient(circle,#fff 0 6%,#ff5c8a 7% 100%); display:flex; align-items:center; justify-content:center; font-size:1.6rem; font-weight:800; color:#fff; }
+  .m-title { font-size:clamp(1.3rem,5vw,1.8rem); font-weight:800; word-break:break-word; }
+  .m-artist { opacity:.85; margin-top:2px; }
+  .eq { display:flex; gap:4px; justify-content:center; align-items:flex-end; height:28px; margin:12px 0 8px; }
+  .eq i { width:5px; height:6px; border-radius:3px; background:#fff; opacity:.9; }
+  .music.playing .eq i { animation:bounce 0.9s ease-in-out infinite; }
+  .eq i:nth-child(2n) { animation-delay:.15s !important; } .eq i:nth-child(3n) { animation-delay:.3s !important; } .eq i:nth-child(4n) { animation-delay:.45s !important; }
+  @keyframes bounce { 0%,100% { height:6px; } 50% { height:26px; } }
+  .m-progress { display:flex; align-items:center; gap:8px; font:.8rem ui-monospace,Menlo,monospace; }
+  .m-progress input { flex:1; accent-color:#fff; }
+  .m-controls { display:flex; justify-content:center; align-items:center; gap:18px; margin-top:10px; }
+  .m-controls button { background:rgba(255,255,255,.18); border-radius:50%; width:48px; height:48px; padding:0; font-size:1.2rem; color:#fff; }
+  .m-controls .m-big { width:68px; height:68px; font-size:1.7rem; background:#fff; color:#ff3d77; box-shadow:0 6px 20px rgba(0,0,0,.3); }
+  .songlist { text-align:left; margin-top:14px; background:rgba(0,0,0,.25); border-radius:12px; padding:4px; }
+  .songlist li button:hover { background:rgba(255,255,255,.12); }
+  .songlist li.current button { background:rgba(255,255,255,.22); }
+  .songlist .tag, .songlist .who { color:#ffe1ea; }
+  /* ---- popup, toast, hearts ---- */
+  .modal { position:fixed; inset:0; background:rgba(0,0,0,.6); display:flex; align-items:center; justify-content:center; padding:16px; z-index:50; }
+  .modal-card { background:var(--card); border:1px solid #3a2340; border-radius:18px; padding:22px 18px; max-width:420px; width:100%; text-align:center; animation:pop .25s ease-out; }
+  @keyframes pop { from { transform:scale(.9); opacity:0; } }
+  .modal-emoji { font-size:2.6rem; }
+  .modal-card h2 { margin:8px 0 6px; font-size:1.3rem; }
+  .modal-card p { color:#d6d6de; margin:0 0 16px; }
+  .modal-btns { display:flex; flex-direction:column; gap:8px; }
+  .toast { position:fixed; left:50%; bottom:20px; transform:translateX(-50%); background:#2a1530; border:1px solid #5a2e4a; color:var(--fg); padding:12px 16px; border-radius:12px; z-index:40; max-width:calc(100% - 32px); box-shadow:0 8px 24px rgba(0,0,0,.4); }
+  .hearts { position:fixed; inset:0; pointer-events:none; z-index:60; overflow:hidden; }
+  .hearts span { position:absolute; bottom:-40px; font-size:28px; animation:floatUp 2.6s ease-in forwards; }
+  @keyframes floatUp { to { transform:translateY(-110vh) rotate(25deg); opacity:0; } }
   #log { font:12px ui-monospace,Menlo,monospace; color:var(--muted); max-height:120px; overflow:auto; white-space:pre-wrap; }
 </style>
 </head>
@@ -67,6 +105,7 @@
     <div class="hero-kicker" id="heroKicker">Not connected</div>
     <div class="hero-title" id="heroTitle">Create a room, or join your partner's</div>
     <div class="hero-sub" id="heroSub"></div>
+    <button id="heroBtn" class="hidden" style="margin-top:12px"></button>
   </section>
 
   <!-- Step 1: room -->
@@ -94,35 +133,54 @@
     <div class="small" id="peerInfo" style="margin-top:6px"></div>
   </section>
 
-  <!-- What to watch: your own files, or YouTube -->
+  <!-- What to play: video files, music, or YouTube -->
   <div class="modes" role="tablist">
-    <button class="mode on" id="modeFiles" role="tab">📁 My files</button>
+    <button class="mode on" id="modeVideo" role="tab">🎬 Video</button>
+    <button class="mode" id="modeMusic" role="tab">🎵 Music</button>
     <button class="mode" id="modeYt" role="tab">▶ YouTube</button>
   </div>
 
-  <div id="filesPane">
+  <div id="videoPane">
     <section class="card">
-      <div class="small" style="margin-bottom:8px">Pick a movie, an episode or a song on this device (files never leave your device)</div>
+      <div class="small" style="margin-bottom:8px">Pick a movie or episodes on this device (files never leave your device)</div>
       <div class="row">
-        <label class="pick btn" id="movieBtn">Choose a file<input type="file" id="fileInput" accept="video/*,audio/*,.mkv,.flac,.m4a,.opus"></label>
-        <label class="pick btn" id="seriesBtn" style="background:transparent;border:1px solid #3a3a48">
-          <span id="seriesLabel">Choose a folder (series or album)</span><input type="file" id="seriesInput" multiple accept="video/*,audio/*,.mkv,.flac,.m4a,.opus">
-        </label>
+        <label class="pick btn">Choose a video<input type="file" id="fileInput" accept="video/*,.mkv"></label>
+        <label class="pick btn outline"><span id="seriesLabel">Choose a series folder</span><input type="file" id="seriesInput" multiple accept="video/*,.mkv"></label>
       </div>
       <div class="small" id="fileInfo" style="margin-top:8px"></div>
       <ul class="eplist hidden" id="epList"></ul>
     </section>
-
     <section class="stage" id="stage">
-      <div class="audio-art" id="audioArt"><div class="note">♪</div><div class="song" id="songTitle"></div><div class="artist" id="songArtist"></div></div>
       <video id="video" controls playsinline preload="auto"></video>
-      <div class="overlay" id="tapOverlay"><button id="tapBtn">Tap to start syncing</button></div>
+      <div class="overlay" id="tapOverlay"><button class="tapBtn">Tap to start syncing</button></div>
+    </section>
+  </div>
+
+  <div id="musicPane" class="hidden">
+    <section class="music" id="musicCard">
+      <div class="row music-pick">
+        <label class="pick btn glass">🎵 Choose a song<input type="file" id="songInput" accept="audio/*,.flac,.m4a,.opus,.mp3"></label>
+        <label class="pick btn glass"><span id="albumLabel">💿 Choose an album folder</span><input type="file" id="albumInput" multiple accept="audio/*,.flac,.m4a,.opus,.mp3"></label>
+      </div>
+      <div class="vinyl-wrap"><div class="vinyl" id="vinyl"><div class="vinyl-label" id="vinylLabel">♪</div></div></div>
+      <div class="m-title" id="mTitle">Pick a song</div>
+      <div class="m-artist" id="mArtist">and listen together 💕</div>
+      <div class="eq" id="eq"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="m-progress"><span id="mCur">0:00</span><input type="range" id="mSeek" min="0" max="1000" value="0" step="1"><span id="mDur">0:00</span></div>
+      <div class="m-controls">
+        <button id="mPrev" aria-label="Previous">⏮</button>
+        <button id="mPlay" class="m-big" aria-label="Play">▶</button>
+        <button id="mNext" aria-label="Next">⏭</button>
+      </div>
+      <div class="row" style="justify-content:center;margin-top:10px"><button id="heartBtn" class="glass">💗 Send a heart</button></div>
+      <ul class="eplist songlist hidden" id="songList"></ul>
+      <div class="overlay" id="tapOverlay2"><button class="tapBtn">Tap to join the music</button></div>
     </section>
   </div>
 
   <div id="ytPane" class="hidden">
     <section class="card">
-      <div class="small" style="margin-bottom:8px">Paste a YouTube link. It opens for your partner too, and stays in sync.</div>
+      <div class="small" style="margin-bottom:8px">Paste a YouTube link. Either of you can pick; if you pick different ones, you'll decide together.</div>
       <div class="row">
         <input type="text" id="ytInput" placeholder="https://youtu.be/…" autocomplete="off" style="text-transform:none;letter-spacing:0">
         <button id="ytGo">Watch</button>
@@ -132,6 +190,17 @@
     <section class="stage yt-stage"><div id="ytPlayer"></div></section>
   </div>
   <p class="small" id="syncInfo"></p>
+
+  <div class="modal hidden" id="modal" role="dialog" aria-modal="true">
+    <div class="modal-card">
+      <div class="modal-emoji" id="mdEmoji"></div>
+      <h2 id="mdTitle"></h2>
+      <p id="mdText"></p>
+      <div class="modal-btns" id="mdBtns"></div>
+    </div>
+  </div>
+  <div class="toast hidden" id="toast"></div>
+  <div class="hearts" id="hearts" aria-hidden="true"></div>
 
   <details class="card"><summary class="small">Debug log</summary><div id="log"></div></details>
 </main>
@@ -289,7 +358,7 @@
 
   async function applyState(m) {
     if (!media.src || media.readyState < 1) { pendingState = m; return; }
-    if (!unlocked && !m.paused && media === video) { pendingState = m; $('tapOverlay').classList.add('show'); return; }
+    if (!unlocked && !m.paused && media === video) { pendingState = m; showTap(true); return; }
     const target = expectedPos(m);
     const needSeek = Math.abs(media.currentTime - target) > (media.coarseRate ? 0.6 : 0.25);
     if (!needSeek && m.paused === media.paused) { media.playbackRate = 1; return; } // already matching: don't mute our own events
@@ -302,7 +371,7 @@
       try { await media.play(); }
       catch (e) {
         log('play failed', e.name);
-        if (e.name === 'NotAllowedError') { unlocked = false; pendingState = m; $('tapOverlay').classList.add('show'); }
+        if (e.name === 'NotAllowedError') { unlocked = false; pendingState = m; showTap(true); }
         else setTimeout(() => { if (media.paused && !m.paused) { suppress(); media.play().catch(() => {}); } }, 300); // interrupted by a seek: retry
       }
     }
@@ -310,7 +379,12 @@
 
   // Follower nudges playback speed to stay within ~40 ms of the leader.
   function onHeartbeat(m) {
-    if (isLeader || !media.src || media.readyState < 2) return;
+    if (!media.src || media.readyState < 2) return;
+    if (isLeader) {
+      // Both think they lead (e.g. both started the next episode): the most recent action wins.
+      if (!(m.since && toLocal(m.since) > leaderSince)) return;
+      isLeader = false;
+    }
     if (m.paused !== media.paused) return applyState(m);
     if (m.paused) return;
     const drift = expectedPos(m) - media.currentTime; // + means we are behind
@@ -326,14 +400,14 @@
 
   setInterval(() => {
     if (link && isLeader && media.src && !media.paused) {
-      link.send({ type: 'hb', paused: false, pos: media.currentTime, rate: media.playbackRate, at: now(), name: media.dataset.name });
+      link.send({ type: 'hb', paused: false, pos: media.currentTime, rate: media.playbackRate, at: now(), name: media.dataset.name, since: leaderSince });
       $('syncInfo').textContent = 'Sync: you are leading';
     }
   }, 1000);
 
   // Right after we apply the partner's state, our player fires its own play/pause/seek events.
   // Skip those echoes, but still pass on a real tap that happens in the same moment.
-  let lastApplied = null;
+  let lastApplied = null, leaderSince = 0;
   function isEcho(why) {
     const la = lastApplied;
     if (!la || now() > la.until) return true; // other short local changes: always quiet
@@ -343,7 +417,7 @@
   function onLocalChange(why) {
     if (applyingRemote && isEcho(why)) return;
     if (!unlocked) unlocked = true; // a real tap on the media controls counts
-    isLeader = true;
+    isLeader = true; leaderSince = now();
     sendState(why);
   }
   onMedia('play', () => onLocalChange('play'));
@@ -369,71 +443,91 @@
     switch (m.type) {
       case 'ping': link.send({ type: 'pong', t0: m.t0, t1: now() }); break;
       case 'pong': onPong(m); break;
-      case 'state': if (otherEpisode(m)) break; isLeader = false; log('remote', m.why, m.paused ? 'paused' : 'playing', m.pos.toFixed(2)); applyState(m); break;
+      case 'state': if (otherEpisode(m)) break;
+        if (m.why === 'sync' && m.paused && now() < autoStartUntil) break; // stale "paused" reply while we start the next episode
+        isLeader = false; log('remote', m.why, m.paused ? 'paused' : 'playing', m.pos.toFixed(2)); applyState(m); break;
       case 'hb': if (!otherEpisode(m)) onHeartbeat(m); break;
-      case 'file': if (m.name.startsWith('yt:') && mode2 !== 'yt') openYouTube(m.name.slice(3), false); partner.file = m; partner.presence = 'idle'; partner.cantPlay = null; if (partner.missing && !sameVideo(partner.missing, m.name)) partner.missing = null; renderHero(); renderEpisodes(); break;
-      case 'left-yt': partner.file = null; partner.presence = 'browsing'; renderHero(); break;
+      case 'file':
+        if (m.name.startsWith('yt:') && !myName()) openYouTube(m.name.slice(3)); // nothing playing here: just join
+        partner.file = m; partner.presence = 'idle'; partner.cantPlay = null;
+        if (partner.missing && !sameVideo(partner.missing, m.name)) partner.missing = null;
+        renderHero(); renderEpisodes(); break;
+      case 'left-yt': partner.file = null; partner.presence = 'browsing'; if (clash === 'flavours') clash = null; renderHero(); break;
       case 'presence': partner.presence = m.state; renderHero(); break;
-      case 'episode': if (mode2 === 'yt') setMode('files', false); onRemoteEpisode(m); break;
-      case 'yt': partner.file = { name: 'yt:' + m.id, title: m.title || '' }; partner.presence = 'idle'; openYouTube(m.id, false); break;
+      case 'episode':
+        if (clash === 'flavours' && !sameVideo(m.name, myName() || '')) { partner.file = { name: m.name }; renderHero(); break; }
+        onRemoteEpisode(m); break;
+      case 'yt': partner.file = { name: 'yt:' + m.id, title: m.title || '' }; partner.presence = 'idle'; if (!myName() || myName() === 'yt:' + m.id || clash !== 'flavours') openYouTube(m.id); renderHero(); break;
+      case 'propose': onPropose(m); break;
+      case 'answer': onAnswer(m); break;
+      case 'final': onFinal(m); break;
+      case 'gave-in': clash = null; closeModal(); toast('Your partner gave in and is joining you 💕'); renderHero(); break;
+      case 'heart': floatHearts(); break;
       case 'need-state': sendState('sync'); break;
       case 'cant-play': partner.cantPlay = m.name; renderHero(); break;
     }
   }
 
-  // ---------- local file ----------
+  // ---------- local files ----------
   // Files the browser can open itself play directly. Others (like MKV in Safari) are
   // repackaged to MP4 on the fly, on this device, by mkv.js.
   let currentFile = null, repack = null, mode = 'native';
   const needsRepack = f => params.has('repack') || (/\.(mkv|mk3d)$/i.test(f.name) && !video.canPlayType('video/x-matroska'));
   function setFileMsg(text, warn) { $('fileInfo').textContent = text; $('fileInfo').className = 'small' + (warn ? ' warn' : ''); }
+  // Phones block playback that wasn't started by a tap. Ask for one tap on the visible player.
+  function showTap(show) {
+    $('tapOverlay').classList.toggle('show', show && mode2 !== 'music');
+    $('tapOverlay2').classList.toggle('show', show && mode2 === 'music');
+  }
 
-  const { parseTitle, label, sortEpisodes } = window.CVPTitles;
+  const { parseTitle, label, sortEpisodes, isAudio } = window.CVPTitles;
   const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  const VIDEO_EXT = /\.(mp4|m4v|mkv|mk3d|webm|mov|avi|ts|m2ts|wmv|ogv|mp3|m4a|aac|flac|wav|ogg|oga|opus|wma|aiff?)$/i;
-  let playlist = [], epIndex = -1, autoPlayNext = false;
+  const MEDIA_EXT = /\.(mp4|m4v|mkv|mk3d|webm|mov|avi|ts|m2ts|wmv|ogv|mp3|m4a|aac|flac|wav|ogg|oga|opus|wma|aiff?)$/i;
+  let playlist = [], epIndex = -1, autoPlayNext = false, autoStartUntil = 0;
   let partner = { presence: 'none', file: null, cantPlay: null, missing: null };
 
-  // Series button: a folder picker on computers, a multi-file picker on phones (iOS can't pick folders).
-  if (!isMobile && 'webkitdirectory' in document.createElement('input')) $('seriesInput').webkitdirectory = true;
-  else $('seriesLabel').textContent = 'Choose several files (episodes or songs)';
+  // Folder buttons: a folder picker on computers, a multi-file picker on phones (iOS can't pick folders).
+  if (!isMobile && 'webkitdirectory' in document.createElement('input')) { $('seriesInput').webkitdirectory = true; $('albumInput').webkitdirectory = true; }
+  else { $('seriesLabel').textContent = 'Choose several episodes'; $('albumLabel').textContent = '💿 Choose several songs'; }
 
   function loadFile(f) {
-    if (mode2 === 'yt') setMode('files', false);
+    setMode(isAudio(f.name) ? 'music' : 'video', false);
     currentFile = f;
-    // Music: show the song name instead of a black video box.
-    const song = window.CVPTitles.isAudio(f.name) ? parseTitle(f.name) : null;
-    $('stage').classList.toggle('audio', !!song);
-    if (song) { $('songTitle').textContent = song.title; $('songArtist').textContent = song.artist; }
     if (repack) { repack.destroy(); repack = null; }
     if (video.src && mode === 'native') URL.revokeObjectURL(video.src);
     video.dataset.name = f.name; video.dataset.size = f.size;
-    if (!unlocked) $('tapOverlay').classList.add('show');
+    if (!unlocked && !isAudio(f.name)) showTap(true); // the music player's own play button counts as the tap
     setFileMsg(f.name + ': loading…');
+    renderMusic();
     if (needsRepack(f)) startRepack(f);
     else { mode = 'native'; video.src = URL.createObjectURL(f); }
     renderHero();
   }
 
-  $('fileInput').addEventListener('change', e => {
-    const f = e.target.files[0]; if (!f) return sendPresence('idle');
+  // A fresh pick (not just the next episode) may clash with what the partner is on.
+  function pickSingle(f) {
     playlist = []; epIndex = -1; renderEpisodes();
     loadFile(f);
-    if (link) link.send({ type: 'episode', name: f.name }); // a partner with a series folder follows along
-  });
-
-  $('seriesInput').addEventListener('change', e => {
-    const files = [...e.target.files].filter(f => VIDEO_EXT.test(f.name) && !f.name.startsWith('.'));
+    announcePick(f.name);
+  }
+  function pickMany(list) {
+    const files = [...list].filter(f => MEDIA_EXT.test(f.name) && !f.name.startsWith('.'));
     if (!files.length) { setFileMsg('No video or music files found in that selection.', true); return sendPresence('idle'); }
     playlist = sortEpisodes(files);
-    // Start where the partner is, if we have that episode; else the first one.
-    const pk = partner.file && parseTitle(partner.file.name);
-    let i = pk ? findEpisode(pk, partner.file.name) : -1;
-    playEpisode(i >= 0 ? i : 0, { announce: i < 0 });
-  });
+    // Start where the partner is, if we have that one; else the first.
+    let i = partner.file ? findEpisode(parseTitle(partner.file.name), partner.file.name) : -1;
+    if (i >= 0) { playEpisode(i, { announce: false }); sendFileInfoSoon(); return; }
+    playEpisode(0, { announce: false });
+    announcePick(playlist[0].file.name);
+  }
+  $('fileInput').addEventListener('change', e => { const f = e.target.files[0]; if (f) pickSingle(f); else sendPresence('idle'); e.target.value = ''; });
+  $('songInput').addEventListener('change', e => { const f = e.target.files[0]; if (f) pickSingle(f); else sendPresence('idle'); e.target.value = ''; });
+  $('seriesInput').addEventListener('change', e => { pickMany(e.target.files); e.target.value = ''; });
+  $('albumInput').addEventListener('change', e => { pickMany(e.target.files); e.target.value = ''; });
+  function sendFileInfoSoon() { setTimeout(sendFileInfo, 300); }
 
-  // "Your partner is looking for a video": tell them when we open a picker, and when we back out of it.
-  for (const id of ['fileInput', 'seriesInput']) {
+  // "Your partner is looking for something": tell them when we open a picker, and when we back out of it.
+  for (const id of ['fileInput', 'seriesInput', 'songInput', 'albumInput']) {
     $(id).addEventListener('click', () => { sendPresence('browsing'); armPickerFallback(); });
     $(id).addEventListener('cancel', () => sendPresence('idle'));
   }
@@ -452,13 +546,16 @@
       if (i >= 0) return i;
     }
     const norm = n => n.toLowerCase().replace(/\.[^.]+$/, '').replace(/[^a-z0-9]/g, '');
-    return playlist.findIndex(e => norm(e.file.name) === norm(name));
+    const i = playlist.findIndex(e => norm(e.file.name) === norm(name));
+    if (i >= 0) return i;
+    return playlist.findIndex(e => label(e.t).toLowerCase() === label(parseTitle(name)).toLowerCase());
   }
 
   function playEpisode(i, { announce = true, autoplay = false } = {}) {
     if (i < 0 || i >= playlist.length) return;
     epIndex = i;
     autoPlayNext = autoplay;
+    if (autoplay) autoStartUntil = now() + 2500;
     partner.missing = null;
     loadFile(playlist[i].file);
     renderEpisodes();
@@ -466,7 +563,10 @@
   }
 
   function renderEpisodes() {
-    const ul = $('epList');
+    const music = playlist.length && playlist[0].t.kind === 'music';
+    const ul = music ? $('songList') : $('epList');
+    const other = music ? $('epList') : $('songList');
+    other.classList.add('hidden'); other.innerHTML = '';
     ul.classList.toggle('hidden', !playlist.length);
     ul.innerHTML = '';
     const pName = partner.file && partner.file.name;
@@ -481,17 +581,17 @@
       b.querySelector('.tag').textContent = tag;
       b.querySelector('.nm').textContent = name;
       b.querySelector('.who').textContent = (i === epIndex ? 'you' : '') + (i === epIndex && partnerHere ? ' + ' : '') + (partnerHere ? 'partner' : '');
-      b.onclick = () => playEpisode(i, { announce: true });
+      b.onclick = () => playEpisode(i, { announce: true, autoplay: !video.paused });
       li.appendChild(b); ul.appendChild(li);
     });
   }
   function findEpisodeIn(e, name) {
     const t = parseTitle(name);
     if (t.kind === 'series' && e.t.kind === 'series') return t.season === e.t.season && t.episode === e.t.episode;
-    return e.file.name === name;
+    return e.file.name === name || label(e.t).toLowerCase() === label(t).toLowerCase();
   }
 
-  // Next episode starts by itself, for both of you.
+  // Next episode / song starts by itself, for both of you.
   video.addEventListener('ended', () => {
     if (playlist.length && epIndex + 1 < playlist.length) playEpisode(epIndex + 1, { announce: true, autoplay: true });
   });
@@ -500,48 +600,84 @@
     partner.file = { name: m.name, duration: 0 };
     partner.presence = 'idle';
     if (!playlist.length) { renderHero(); return; }
-    const t = parseTitle(m.name);
-    const i = findEpisode(t, m.name);
+    const i = findEpisode(parseTitle(m.name), m.name);
     if (i < 0) { partner.missing = m.name; renderHero(); renderEpisodes(); return; }
     if (i !== epIndex) playEpisode(i, { announce: false, autoplay: !!m.play });
     else { renderHero(); renderEpisodes(); }
   }
 
-  // Ignore play/pause/position from a partner who is on a different episode (e.g. mid-switch).
-  function otherEpisode(m) {
-    if (!m.name) return false;
-    const mineName = media === yt ? yt.dataset.name : currentFile && currentFile.name;
-    if (m.name.startsWith('yt:') || (mineName || '').startsWith('yt:')) return m.name !== mineName; // different YouTube video, or one of us isn't on YouTube
-    if (!currentFile) return false;
-    const a = parseTitle(m.name), b = parseTitle(currentFile.name);
-    return a.kind === 'series' && b.kind === 'series' && (a.season !== b.season || a.episode !== b.episode);
+  // ---------- the music player ----------
+  function renderMusic() {
+    const song = currentFile && isAudio(currentFile.name) ? parseTitle(currentFile.name) : null;
+    $('mTitle').textContent = song ? song.title : 'Pick a song';
+    $('mArtist').textContent = song ? (song.artist || 'Unknown artist') : 'and listen together 💕';
+    $('vinylLabel').textContent = song ? (song.title.trim()[0] || '♪').toUpperCase() : '♪';
+    const playing = media === video && song && !video.paused;
+    $('musicCard').classList.toggle('playing', !!playing);
+    $('mPlay').textContent = playing ? '❚❚' : '▶';
   }
+  for (const ev of ['play', 'pause', 'playing', 'ended']) video.addEventListener(ev, renderMusic);
+  video.addEventListener('timeupdate', () => {
+    if (mode2 !== 'music' || !video.duration) return;
+    $('mCur').textContent = fmt(video.currentTime); $('mDur').textContent = fmt(video.duration);
+    if (!seekingBar) $('mSeek').value = Math.round(video.currentTime / video.duration * 1000);
+  });
+  let seekingBar = false;
+  $('mSeek').addEventListener('input', () => { seekingBar = true; if (video.duration) $('mCur').textContent = fmt($('mSeek').value / 1000 * video.duration); });
+  $('mSeek').addEventListener('change', () => { seekingBar = false; if (video.duration) video.currentTime = $('mSeek').value / 1000 * video.duration; });
+  $('mPlay').onclick = () => {
+    if (!currentFile || !isAudio(currentFile.name)) { $('songInput').click(); return; }
+    unlocked = true; showTap(false);
+    if (video.paused) video.play().catch(e => log('play failed', e.name)); else video.pause();
+  };
+  $('mPrev').onclick = () => {
+    if (video.currentTime > 3 || epIndex <= 0) { video.currentTime = 0; return; }
+    playEpisode(epIndex - 1, { announce: true, autoplay: !video.paused });
+  };
+  $('mNext').onclick = () => { if (epIndex >= 0 && epIndex + 1 < playlist.length) playEpisode(epIndex + 1, { announce: true, autoplay: !video.paused }); };
 
-  // ---------- my files / YouTube ----------
-  let mode2 = 'files';
+  // Hearts: a little "I love this one" that floats up on both screens.
+  function floatHearts(n = 8) {
+    const box = $('hearts');
+    for (let i = 0; i < n; i++) {
+      const h = document.createElement('span');
+      h.textContent = ['💗', '💖', '💕', '❤️', '💘'][i % 5];
+      h.style.left = (10 + Math.random() * 80) + '%';
+      h.style.animationDelay = (i * 0.12) + 's';
+      box.appendChild(h);
+      setTimeout(() => h.remove(), 3200 + i * 120);
+    }
+  }
+  $('heartBtn').onclick = () => { floatHearts(); if (link) link.send({ type: 'heart' }); };
+
+  // ---------- tabs: Video / Music / YouTube ----------
+  let mode2 = 'video';
   function setMode(m, announce = true) {
     if (m === mode2) return;
+    const leavingYt = mode2 === 'yt';
     mode2 = m;
-    $('modeFiles').classList.toggle('on', m === 'files');
-    $('modeYt').classList.toggle('on', m === 'yt');
-    $('filesPane').classList.toggle('hidden', m !== 'files');
+    for (const [id, k] of [['modeVideo', 'video'], ['modeMusic', 'music'], ['modeYt', 'yt']]) $(id).classList.toggle('on', m === k);
+    $('videoPane').classList.toggle('hidden', m !== 'video');
+    $('musicPane').classList.toggle('hidden', m !== 'music');
     $('ytPane').classList.toggle('hidden', m !== 'yt');
     if (m === 'yt') { if (!video.paused) { suppress(); video.pause(); } media = yt; }
-    else { if (yt.player && !yt.paused) { suppress(); yt.pause(); } media = video; }
+    else if (leavingYt) { if (yt.player && !yt.paused) { suppress(); yt.pause(); } media = video; }
     isLeader = true;
-    if (announce && link && m === 'files') link.send(currentFile ? { type: 'episode', name: currentFile.name } : { type: 'left-yt' });
-    if (announce && link && m === 'yt' && yt.id) link.send({ type: 'yt', id: yt.id, title: yt.dataset.title || '' });
-    renderHero();
+    if (announce && link) {
+      if (m === 'yt' && yt.id) link.send({ type: 'file', name: yt.dataset.name, title: yt.dataset.title || '', duration: yt.duration });
+      else if (leavingYt) link.send(currentFile ? { type: 'file', name: currentFile.name, size: currentFile.size, duration: video.duration || 0 } : { type: 'left-yt' });
+    }
+    renderHero(); renderMusic();
   }
-  $('modeFiles').onclick = () => setMode('files');
+  $('modeVideo').onclick = () => setMode('video');
+  $('modeMusic').onclick = () => setMode('music');
   $('modeYt').onclick = () => setMode('yt');
 
-  async function openYouTube(id, announce) {
+  async function openYouTube(id) {
     setMode('yt', false);
     $('ytInput').value = 'https://youtu.be/' + id;
-    if (yt.id === id) { renderHero(); return; }
+    if (yt.id === id) { renderHero(); if (link) link.send({ type: 'need-state' }); return; }
     $('ytInfo').textContent = 'Loading…'; $('ytInfo').className = 'small';
-    if (announce && link) link.send({ type: 'yt', id });
     try { await yt.load(id); }
     catch (e) { $('ytInfo').textContent = e.message; $('ytInfo').className = 'small warn'; }
     renderHero();
@@ -549,7 +685,8 @@
   $('ytGo').onclick = () => {
     const id = CVPYouTube.parseId($('ytInput').value);
     if (!id) { $('ytInfo').textContent = "That doesn't look like a YouTube link."; $('ytInfo').className = 'small warn'; return; }
-    openYouTube(id, true);
+    openYouTube(id);
+    announcePick('yt:' + id);
   };
   $('ytInput').addEventListener('keydown', e => { if (e.key === 'Enter') $('ytGo').click(); });
   yt.addEventListener('loadedmetadata', () => {
@@ -560,6 +697,121 @@
   });
   yt.addEventListener('error', e => { $('ytInfo').textContent = 'YouTube error ' + (e.detail && e.detail.code) + ': this video may not allow embedding on other sites.'; $('ytInfo').className = 'small warn'; });
 
+  // ---------- picking different things: decide together ----------
+  // States: null (in agreement), 'asking' (we proposed, waiting), 'asked' (partner proposed),
+  // 'final' (partner said no, our call), 'flavours' (agreed to disagree).
+  let clash = null;
+  const myName = () => (media === yt ? (yt.id ? yt.dataset.name : null) : currentFile && currentFile.name);
+  const myTitle = () => (media === yt ? yt.dataset.title || '' : '');
+  const nice = (name, title) => { const d = describe(name, title); return d.title + (d.t.kind === 'series' ? ' ' + d.t.key : ''); };
+
+  function announcePick(name) {
+    if (!link) return;
+    const theirs = partner.file && partner.file.name;
+    if (theirs && !sameVideo(theirs, name)) {
+      clash = 'asking';
+      if (name.startsWith('yt:')) {
+        // Wait a moment for the video's title so the popup on their side can name it.
+        let sent = false;
+        const send = () => { if (sent || !link) return; sent = true; link.send({ type: 'propose', name, title: yt.id === name.slice(3) ? yt.dataset.title || '' : '' }); };
+        yt.addEventListener('loadedmetadata', send, { once: true });
+        setTimeout(send, 3000);
+      } else link.send({ type: 'propose', name });
+      toast(`Asked your partner to switch to ${nice(name)}…`);
+    } else {
+      clash = null;
+      if (name.startsWith('yt:')) link.send({ type: 'yt', id: name.slice(3) });
+      else link.send({ type: 'episode', name });
+    }
+    renderHero();
+  }
+
+  // Switch to whatever the partner is on.
+  function followPartner(name, title) {
+    clash = null; closeModal();
+    if (name.startsWith('yt:')) { openYouTube(name.slice(3)); return; }
+    const i = findEpisode(parseTitle(name), name);
+    if (i >= 0) { playEpisode(i, { announce: false }); return; }
+    setMode(isAudio(name) ? 'music' : 'video', false);
+    toast(`Pick ${nice(name, title)} on this device to join in.`);
+    renderHero();
+  }
+
+  function onPropose(m) {
+    partner.file = { name: m.name, title: m.title || '' };
+    partner.presence = 'idle';
+    const mine = myName();
+    if (!mine || sameVideo(mine, m.name)) { // nothing to argue about: just follow
+      link.send({ type: 'answer', accept: true });
+      followPartner(m.name, m.title);
+      return;
+    }
+    clash = 'asked';
+    const d = describe(m.name, m.title);
+    modal('🤔', 'Your partner picked something else', `They want to ${d.verb} ${d.title}${d.t.kind === 'series' ? ' (' + d.t.key + ')' : ''}. You're on ${nice(mine, myTitle())}.`, [
+      { text: d.verb === 'listen to' ? 'Listen to theirs' : 'Watch theirs', primary: true, on: () => { link.send({ type: 'answer', accept: true }); followPartner(m.name, m.title); } },
+      { text: 'Keep mine', on: () => { clash = 'asking'; link.send({ type: 'answer', accept: false, name: mine, title: myTitle() }); toast('Waiting for your partner to decide…'); closeModal(); renderHero(); } },
+    ]);
+    renderHero();
+  }
+
+  function onAnswer(m) {
+    if (m.accept) { clash = null; closeModal(); toast('Your partner is joining you 🎉'); renderHero(); return; }
+    partner.file = { name: m.name, title: m.title || '' };
+    clash = 'final';
+    modal('🙈', 'Your partner wants to keep theirs', `They'd rather stay on ${nice(m.name, m.title)}. Watch theirs, or keep yours?`, [
+      { text: isAudio(m.name) ? 'OK, listen to theirs' : 'OK, watch theirs', primary: true, on: () => { link.send({ type: 'final', accept: true }); followPartner(m.name, m.title); } },
+      { text: 'Keep mine', on: () => { link.send({ type: 'final', accept: false }); differentFlavours(); } },
+    ]);
+    renderHero();
+  }
+
+  function onFinal(m) {
+    if (m.accept) { clash = null; closeModal(); toast('Your partner came over to yours 💕'); renderHero(); return; }
+    differentFlavours();
+  }
+
+  function differentFlavours() {
+    clash = 'flavours';
+    modal('🍦🍕', 'Oops! Different flavours today', "You both want your own thing. Each of you keeps playing your own for now, and either of you can give in anytime.", [
+      { text: 'Fine, I’ll watch theirs', primary: true, on: giveIn },
+      { text: 'Close', on: closeModal },
+    ]);
+    renderHero();
+  }
+  function giveIn() {
+    if (!partner.file) return;
+    link && link.send({ type: 'gave-in' });
+    followPartner(partner.file.name, partner.file.title);
+  }
+  $('heroBtn').onclick = giveIn;
+
+  let toastTimer = null;
+  function toast(text) {
+    const t = $('toast'); t.textContent = text; t.classList.remove('hidden');
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.add('hidden'), 4000);
+  }
+  function modal(emoji, title, text, buttons) {
+    $('mdEmoji').textContent = emoji; $('mdTitle').textContent = title; $('mdText').textContent = text;
+    const box = $('mdBtns'); box.innerHTML = '';
+    for (const b of buttons) {
+      const el = document.createElement('button');
+      el.textContent = b.text; if (!b.primary) el.className = 'ghost';
+      el.onclick = () => { closeModal(); b.on(); };
+      box.appendChild(el);
+    }
+    $('modal').classList.remove('hidden');
+  }
+  function closeModal() { $('modal').classList.add('hidden'); }
+
+  // Ignore play/pause/position from a partner who is playing something else (or mid-switch).
+  function otherEpisode(m) {
+    if (clash === 'flavours' || clash === 'asking' || clash === 'asked' || clash === 'final') return true;
+    const mine = myName();
+    if (!m.name || !mine) return false;
+    return !sameVideo(m.name, mine);
+  }
+
   // ---------- the big banner ----------
   function setHero(kicker, title, sub, opts = {}) {
     $('heroKicker').textContent = kicker;
@@ -567,15 +819,17 @@
     $('heroTitle').classList.toggle('pulse', !!opts.pulse);
     $('heroSub').textContent = sub || '';
     $('heroSub').className = 'hero-sub' + (opts.warn ? ' warn' : '');
+    $('heroBtn').classList.toggle('hidden', !opts.button);
+    if (opts.button) $('heroBtn').textContent = opts.button;
   }
   function describe(name, ytTitle) {
-    if (name.startsWith('yt:')) return { t: { kind: 'yt' }, title: ytTitle || 'a YouTube video', sub: 'YouTube', verb: 'watching', what: 'on YouTube' };
+    if (name.startsWith('yt:')) return { t: { kind: 'yt' }, title: ytTitle || 'a YouTube video', sub: 'YouTube', verb: 'watch', verbing: 'watching', what: 'on YouTube' };
     const t = parseTitle(name);
-    if (t.kind === 'music') return { t, title: t.title, sub: t.artist || 'Song', verb: 'listening to', what: '' };
-    if (t.kind === 'series') return { t, title: t.show, sub: `Season ${t.season} · Episode ${t.episode}` + (t.episodeTitle ? ` · ${t.episodeTitle}` : ''), verb: 'watching', what: 'the series' };
-    return { t, title: t.title + (t.year ? ` (${t.year})` : ''), sub: 'Movie', verb: 'watching', what: 'the movie' };
+    if (t.kind === 'music') return { t, title: t.title, sub: t.artist || 'Song', verb: 'listen to', verbing: 'listening to', what: '' };
+    if (t.kind === 'series') return { t, title: t.show, sub: `Season ${t.season} · Episode ${t.episode}` + (t.episodeTitle ? ` · ${t.episodeTitle}` : ''), verb: 'watch', verbing: 'watching', what: 'the series' };
+    return { t, title: t.title + (t.year ? ` (${t.year})` : ''), sub: 'Movie', verb: 'watch', verbing: 'watching', what: 'the movie' };
   }
-  const phrase = (who, d) => `${who} ${d.verb} ${d.what}`.trim();
+  const phrase = (who, d) => `${who} ${d.verbing} ${d.what}`.trim();
   function sameVideo(a, b) {
     if (a.startsWith('yt:') || b.startsWith('yt:')) return a === b;
     const ta = parseTitle(a), tb = parseTitle(b);
@@ -583,12 +837,16 @@
     return a === b || label(ta).toLowerCase() === label(tb).toLowerCase();
   }
   function renderHero() {
-    const mine = media === yt ? (yt.id ? yt.dataset.name : null) : currentFile && currentFile.name;
-    const mineTitle = media === yt ? yt.dataset.title : '';
+    const mine = myName(), mineTitle = myTitle();
     if (!link) {
       const waiting = $('shareCard') && !$('shareCard').classList.contains('hidden');
       return setHero(waiting ? 'Room open' : 'Not connected', waiting ? 'Waiting for your partner to join…' : 'Create a room, or join your partner\'s', waiting ? 'Share the link or the code below.' : '', { pulse: waiting });
     }
+    if (clash === 'flavours' && partner.file && mine) {
+      return setHero('Oops!', 'Different flavours today 🍦🍕', `You're on ${nice(mine, mineTitle)}, your partner is on ${nice(partner.file.name, partner.file.title)}.`, { button: isAudio(partner.file.name) ? 'Listen to theirs instead' : 'Watch theirs instead' });
+    }
+    if (clash === 'asking') return setHero('Waiting for your partner', 'Will they switch?', `You asked to switch to ${mine ? nice(mine, mineTitle) : 'your pick'}.`, { pulse: true });
+    if (clash === 'asked' || clash === 'final') return setHero('Decide together', 'You picked different things', 'Choose in the popup.', { pulse: true });
     if (partner.presence === 'browsing') return setHero('Your partner', 'is looking for something to play…', mine ? 'You picked ' + describe(mine, mineTitle).title + '.' : '', { pulse: true });
     if (partner.cantPlay) return setHero('Your partner', 'can\'t play their file', partner.cantPlay + ' needs to be converted to MP4 on their side.', { warn: true });
     if (partner.missing) {
@@ -600,10 +858,9 @@
       return setHero('Connected', 'Pick something to play', 'A movie, a series, music, or a YouTube video.');
     }
     const d = describe(partner.file.name, partner.file.title);
-    if (!mine) return setHero(phrase('Your partner is', d), d.title, d.sub + ' · Find the same file on this device to join in.');
+    if (!mine) return setHero(phrase('Your partner is', d), d.title, d.sub + (partner.file.name.startsWith('yt:') ? '' : ' · Find the same file on this device to join in.'));
     if (!sameVideo(mine, partner.file.name)) {
-      const me = describe(mine, mineTitle);
-      return setHero(phrase('Your partner is', d), d.title, `${d.sub} · But you picked ${me.title}${me.t.kind === 'series' ? ' ' + me.t.key : ''}. Pick the same one.`, { warn: true });
+      return setHero(phrase('Your partner is', d), d.title, `${d.sub} · But you picked ${nice(mine, mineTitle)}. Pick the same one.`, { warn: true, button: partner.file.name.startsWith('yt:') ? 'Watch theirs' : '' });
     }
     let sub = d.sub;
     if (media === video && partner.file.duration && video.duration && Math.abs(video.duration - partner.file.duration) > 2) { sub += ' · Lengths differ a bit, so this may be a different version.'; }
@@ -631,20 +888,22 @@
     if (!video.duration || !currentFile) return;
     const note = repack && repack.audioNote;
     setFileMsg(`${currentFile.name} · ${fmt(video.duration)}` + (note ? ' · ' + note : ''), !!note);
+    $('mDur').textContent = fmt(video.duration);
   }
 
   function cantPlay(name, why) {
-    setFileMsg(name + ': ' + (why || 'This browser can\'t play this video format.') + ' Converting it to MP4 (H.264 video, AAC audio) works everywhere.', true);
-    $('tapOverlay').classList.remove('show');
+    setFileMsg(name + ': ' + (why || 'This browser can\'t play this format.') + ' Converting it to MP4 (H.264 video, AAC audio) works everywhere.', true);
+    if (isAudio(name)) { $('mArtist').textContent = 'This browser can\'t play this file format.'; }
+    showTap(false);
     if (link) link.send({ type: 'cant-play', name });
   }
 
   video.addEventListener('error', () => {
     if (!video.src || !video.error || !currentFile) return;
     log('video error', video.error.code, video.error.message || '');
-    // Native playback failed: try repackaging before giving up.
-    if (mode === 'native') { startRepack(currentFile); return; }
-    cantPlay(currentFile.name, 'This browser couldn\'t play the video inside this file.');
+    // Native playback failed: try repackaging before giving up (not for music).
+    if (mode === 'native' && !isAudio(currentFile.name)) { startRepack(currentFile); return; }
+    cantPlay(currentFile.name, 'This browser couldn\'t play this file.');
   });
   video.addEventListener('loadedmetadata', () => {
     showFileOk();
@@ -653,18 +912,18 @@
     sendFileInfo(); checkFiles();
     if (link) link.send({ type: 'need-state' });
   });
-  function sendFileInfo() { if (link && video.src && video.duration) link.send({ type: 'file', name: video.dataset.name, size: +video.dataset.size, duration: video.duration }); }
-  function checkFiles() { renderHero(); }
+  function sendFileInfo() { if (link && video.src && video.duration && media === video) link.send({ type: 'file', name: video.dataset.name, size: +video.dataset.size, duration: video.duration }); }
+  function checkFiles() { renderHero(); renderEpisodes(); }
   const fmt = s => { s = Math.round(s || 0); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60; return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0'); };
 
   // One tap unlocks programmatic play on iOS/Android, then catches up to the partner.
-  $('tapBtn').addEventListener('click', async () => {
-    $('tapOverlay').classList.remove('show');
+  document.querySelectorAll('.tapBtn').forEach(btn => btn.addEventListener('click', async () => {
+    showTap(false);
     suppress(800);
     try { await video.play(); if (!pendingState || pendingState.paused) video.pause(); unlocked = true; } catch (e) { log('unlock failed', e.name); }
     if (pendingState) { const p = pendingState; pendingState = null; applyState(p); }
     else if (link) link.send({ type: 'need-state' });
-  });
+  }));
 
   // ---------- room UI ----------
   $('createBtn').onclick = () => hostRoom(makeCode());

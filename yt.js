@@ -64,6 +64,7 @@
       const YT = await loadApi();
       this.id = id;
       this.dataset.name = 'yt:' + id;
+      this.dataset.title = '';
       if (!this.player) {
         await new Promise(resolve => {
           this.player = new YT.Player(this.container, {
