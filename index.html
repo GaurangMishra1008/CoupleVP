@@ -278,6 +278,7 @@
       case 'hb': onHeartbeat(m); break;
       case 'file': remoteFile = m; checkFiles(); break;
       case 'need-state': sendState('sync'); break;
+      case 'cant-play': $('peerInfo').textContent = 'Your partner\'s browser can\'t play their file (' + m.name + '). They need an MP4 copy.'; $('peerInfo').className = 'small warn'; break;
     }
   }
 
@@ -289,8 +290,22 @@
     video.dataset.name = f.name; video.dataset.size = f.size;
     $('tapOverlay').classList.add('show');
   });
+  // Tell the person clearly when the browser can't decode their file (e.g. MKV in Safari / on iPhone).
+  video.addEventListener('error', () => {
+    if (!video.src || !video.error) return;
+    const name = video.dataset.name || '';
+    const isMkv = /\.mkv$/i.test(name);
+    const msg = isMkv
+      ? 'This browser can\'t play MKV files (Safari and iPhone never can). Convert it to MP4 once, or open this page in Chrome on a computer or Android phone.'
+      : 'This browser can\'t play this video format. MP4 (H.264 video, AAC audio) works everywhere.';
+    $('fileInfo').textContent = name + ': ' + msg;
+    $('fileInfo').className = 'small warn';
+    $('tapOverlay').classList.remove('show');
+    log('video error', video.error.code, name);
+    if (link) link.send({ type: 'cant-play', name });
+  });
   video.addEventListener('loadedmetadata', () => {
-    $('fileInfo').textContent = `${video.dataset.name} · ${fmt(video.duration)}`;
+    $('fileInfo').textContent = `${video.dataset.name} · ${fmt(video.duration)}`; $('fileInfo').className = 'small';
     sendFileInfo(); checkFiles();
     if (link) link.send({ type: 'need-state' });
   });

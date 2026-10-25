@@ -25,3 +25,10 @@ A single web page that keeps the same video in sync on two devices. Nothing is u
 - Relies on the public PeerJS server for the handshake; for production, run your own (peerjs-server) or a small WebSocket signaling server.
 - Some mobile networks block direct connections; that needs a TURN relay (only commands go through it, never the video).
 - Format support depends on the browser (MP4/H.264 is safest on iPhone; MKV often won't play on iOS).
+
+## Video formats
+Safari (Mac and iPhone) cannot play MKV. If your file is MKV, make an MP4 copy once. Most MKVs already contain H.264 video, so this takes seconds and keeps full quality:
+
+    ffmpeg -i movie.mkv -c:v copy -c:a aac movie.mp4
+
+(Or use HandBrake with the "Fast 1080p30" preset.) Chrome on a computer or Android can often play MKV directly.
