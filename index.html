@@ -108,26 +108,35 @@
   function onRaw(data) { try { handle(JSON.parse(data)); } catch (e) { log('bad msg', e); } }
 
   function wirePeerConn(conn) {
-    conn.on('open', () => { log('data channel open'); onLinkOpen(d => conn.send(d)); });
+    let opened = false;
+    conn.on('open', () => { opened = true; log('data channel open'); onLinkOpen(d => conn.send(d)); });
     conn.on('data', onRaw);
-    conn.on('close', onLinkClose);
+    conn.on('close', () => { if (opened) onLinkClose(); });
     conn.on('error', e => log('conn error', e));
+    // Found the room but the direct link never came up: usually a strict network (mobile data / office wifi).
+    setTimeout(() => { if (!opened && !link && conn.open === false && peer && !peer.destroyed && conn.peerConnection) setStatus('Found your partner but could not connect directly. Try both on the same Wi-Fi.', 'wait'); }, 20000);
   }
 
-  function hostRoom(code) {
+  function hostRoom(code, attempt = 0) {
     showCode(code);
+    try { sessionStorage.setItem('cvp-host', code); } catch (_) {}
     if (params.has('test')) return testTransport(code, true);
     setStatus('Waiting for your partner to join…', 'wait');
+    if (peer) { try { peer.destroy(); } catch (_) {} }
     peer = new Peer(PREFIX + code, { debug: 1 });
-    peer.on('open', () => log('room ready', code));
+    peer.on('open', () => { log('room ready', code); setStatus('Room ready. Waiting for your partner to join…', 'wait'); });
     peer.on('connection', conn => {
       if (link) { conn.close(); return; } // only two people per room
       wirePeerConn(conn);
     });
+    peer.on('disconnected', () => { if (!peer.destroyed) { log('signaling lost, reconnecting'); peer.reconnect(); } });
     peer.on('error', e => {
       log('peer error', e.type);
-      if (e.type === 'unavailable-id') { hostRoom(makeCode()); }
-      else setStatus('Connection error: ' + e.type, '');
+      if (e.type === 'unavailable-id') {
+        // After a refresh the server can hold our old id for a few seconds: retry, then give up and make a new room.
+        if (attempt < 6) { setStatus('Reopening room…', 'wait'); setTimeout(() => hostRoom(code, attempt + 1), 2500); }
+        else hostRoom(makeCode());
+      } else if (!link) setStatus('Connection error: ' + e.type + '. Refresh to try again.', '');
     });
   }
 
@@ -137,10 +146,22 @@
     if (params.has('test')) return testTransport(code, false);
     setStatus('Connecting…', 'wait');
     peer = new Peer({ debug: 1 });
-    peer.on('open', () => wirePeerConn(peer.connect(PREFIX + code, { reliable: true })));
+    let tries = 0, conn = null;
+    const tryConnect = () => {
+      if (link) return;
+      if (conn) { try { conn.close(); } catch (_) {} }
+      conn = peer.connect(PREFIX + code, { reliable: true });
+      wirePeerConn(conn);
+    };
+    peer.on('open', tryConnect);
+    peer.on('disconnected', () => { if (!peer.destroyed && !link) peer.reconnect(); });
     peer.on('error', e => {
       log('peer error', e.type);
-      setStatus(e.type === 'peer-unavailable' ? 'Room not found. Check the code.' : 'Connection error: ' + e.type, '');
+      if (e.type === 'peer-unavailable') {
+        // The host may not be online yet (or is reloading). Keep trying for about 2 minutes.
+        if (++tries <= 40) { setStatus('Waiting for the room creator to open the page…', 'wait'); setTimeout(tryConnect, 3000); }
+        else setStatus('Room not found. Check the code, or ask your partner to create a new room.', '');
+      } else if (!link) setStatus('Connection error: ' + e.type + '. Refresh to try again.', '');
     });
   }
 
@@ -303,7 +324,9 @@
   };
   if (params.get('room')) {
     const code = params.get('room').toUpperCase();
-    if (params.has('host')) hostRoom(code); else joinRoom(code);
+    let hosting = params.has('host');
+    try { hosting = hosting || sessionStorage.getItem('cvp-host') === code; } catch (_) {}
+    if (hosting) hostRoom(code); else joinRoom(code);
   }
   window.__cvp = { video, get offset() { return offset; }, get leader() { return isLeader; } };
 })();
