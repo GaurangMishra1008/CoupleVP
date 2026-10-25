@@ -27,8 +27,13 @@ A single web page that keeps the same video in sync on two devices. Nothing is u
 - Format support depends on the browser (MP4/H.264 is safest on iPhone; MKV often won't play on iOS).
 
 ## Video formats
-Safari (Mac and iPhone) cannot play MKV. If your file is MKV, make an MP4 copy once. Most MKVs already contain H.264 video, so this takes seconds and keeps full quality:
+MP4 and WebM play directly. **MKV** files (which Safari and iPhone can't open) are repackaged into MP4 on the fly, on the device, by `mkv.js` using [Mediabunny](https://mediabunny.dev) (vendored in `vendor/`, MPL-2.0):
+- Video is copied as-is, so there's no quality loss and very little CPU use. H.264, H.265, VP9 and AV1 work if the browser can decode them.
+- Audio is copied when the browser supports it (AAC, Dolby AC3/EAC3 on Apple devices, Opus). Otherwise it's converted to AAC where the browser can, or the video plays without sound and the page says so.
+- It prepares about 40 s ahead of the playhead and drops what's well behind, so a 2-hour movie doesn't fill memory. Seeking far ahead restarts from the nearest keyframe.
+- Needs Media Source Extensions: any desktop browser, or iOS 17.1+ on iPhone.
+- Add `?repack` to the URL to force this path for any file (for debugging).
+
+If a file still won't play, convert it once:
 
     ffmpeg -i movie.mkv -c:v copy -c:a aac movie.mp4
-
-(Or use HandBrake with the "Fast 1080p30" preset.) Chrome on a computer or Android can often play MKV directly.

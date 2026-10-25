@@ -283,29 +283,61 @@
   }
 
   // ---------- local file ----------
+  // Files the browser can open itself play directly. Others (like MKV in Safari) are
+  // repackaged to MP4 on the fly, on this device, by mkv.js.
+  let currentFile = null, repack = null, mode = 'native';
+  const needsRepack = f => params.has('repack') || (/\.(mkv|mk3d)$/i.test(f.name) && !video.canPlayType('video/x-matroska'));
+  function setFileMsg(text, warn) { $('fileInfo').textContent = text; $('fileInfo').className = 'small' + (warn ? ' warn' : ''); }
+
   $('fileInput').addEventListener('change', e => {
     const f = e.target.files[0]; if (!f) return;
-    if (video.src) URL.revokeObjectURL(video.src);
-    video.src = URL.createObjectURL(f);
+    currentFile = f;
+    if (repack) { repack.destroy(); repack = null; }
+    if (video.src && mode === 'native') URL.revokeObjectURL(video.src);
     video.dataset.name = f.name; video.dataset.size = f.size;
     $('tapOverlay').classList.add('show');
+    if (needsRepack(f)) startRepack(f);
+    else { mode = 'native'; video.src = URL.createObjectURL(f); }
   });
-  // Tell the person clearly when the browser can't decode their file (e.g. MKV in Safari / on iPhone).
-  video.addEventListener('error', () => {
-    if (!video.src || !video.error) return;
-    const name = video.dataset.name || '';
-    const isMkv = /\.mkv$/i.test(name);
-    const msg = isMkv
-      ? 'This browser can\'t play MKV files (Safari and iPhone never can). Convert it to MP4 once, or open this page in Chrome on a computer or Android phone.'
-      : 'This browser can\'t play this video format. MP4 (H.264 video, AAC audio) works everywhere.';
-    $('fileInfo').textContent = name + ': ' + msg;
-    $('fileInfo').className = 'small warn';
+
+  async function startRepack(f) {
+    mode = 'repack';
+    setFileMsg(f.name + ': preparing for this browser…');
+    try {
+      const m = await import('./mkv.js');
+      if (currentFile !== f) return;
+      repack = await m.attach(f, video, {
+        log,
+        onStatus: t => { if (t) setFileMsg(f.name + ': ' + t, /error/i.test(t)); else if (video.duration) showFileOk(); },
+      });
+      showFileOk();
+    } catch (e) {
+      log('repack failed', e.message);
+      cantPlay(f.name, e.message);
+    }
+  }
+
+  function showFileOk() {
+    if (!video.duration || !currentFile) return;
+    const note = repack && repack.audioNote;
+    setFileMsg(`${currentFile.name} · ${fmt(video.duration)}` + (note ? ' · ' + note : ''), !!note);
+  }
+
+  function cantPlay(name, why) {
+    setFileMsg(name + ': ' + (why || 'This browser can\'t play this video format.') + ' Converting it to MP4 (H.264 video, AAC audio) works everywhere.', true);
     $('tapOverlay').classList.remove('show');
-    log('video error', video.error.code, name);
     if (link) link.send({ type: 'cant-play', name });
+  }
+
+  video.addEventListener('error', () => {
+    if (!video.src || !video.error || !currentFile) return;
+    log('video error', video.error.code, video.error.message || '');
+    // Native playback failed: try repackaging before giving up.
+    if (mode === 'native') { startRepack(currentFile); return; }
+    cantPlay(currentFile.name, 'This browser couldn\'t play the video inside this file.');
   });
   video.addEventListener('loadedmetadata', () => {
-    $('fileInfo').textContent = `${video.dataset.name} · ${fmt(video.duration)}`; $('fileInfo').className = 'small';
+    showFileOk();
     sendFileInfo(); checkFiles();
     if (link) link.send({ type: 'need-state' });
   });
