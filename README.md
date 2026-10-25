@@ -22,6 +22,11 @@ The main screen has three tabs:
 - **🎵 Music**: a song or an album folder in a fun player: animated colours, a spinning record, dancing bars, its own play/prev/next and progress bar, and a **💗 Send a heart** button that floats hearts on both screens. Albums play through in order together.
 - **▶ YouTube**: paste a link; it syncs through the YouTube player (`yt.js`). YouTube only allows a few fixed speeds, so drift is corrected by small jumps.
 
+## YouTube browse and party invites
+- The YouTube tab has **🔥 Trending videos**, **🎵 Trending music** and **Search**. Tap a video to play it in the main player for both of you (`ytbrowse.js`).
+- With a YouTube Data API key (set in `config.js`, or pasted into the key box in the app) it uses the official API. Restrict the key to `https://gaurangmishra1008.github.io/*` and the YouTube Data API. Without a key it tries public Piped mirrors, which work most of the time but can be down.
+- Picking or pasting a YouTube link sends your partner a popup: **"Your partner pasted a link. Want to party together? 🎉"** (Let's party / Not now). If they're already on something, it becomes the watch-theirs-or-keep-mine choice below.
+
 ## Picking different things
 If one of you picks something while the other is on something else, the other gets a popup: **watch theirs or keep mine?**
 - Watch theirs: you both switch (YouTube switches automatically; for files, the matching episode/song is picked if you have it, otherwise you're asked to pick it).
