@@ -17,7 +17,20 @@
     return s.replace(/\b([a-z])([a-z']*)/g, (m, a, b) => a.toUpperCase() + b);
   }
 
+  const AUDIO = /\.(mp3|m4a|aac|flac|wav|ogg|oga|opus|wma|alac|aiff?)$/i;
+  function isAudio(fileName) { return AUDIO.test(String(fileName || '')); }
+
+  // "03 - Arijit Singh - Tum Hi Ho.mp3" -> { kind:'music', title:'Tum Hi Ho', artist:'Arijit Singh' }
+  function parseSong(base) {
+    let s = base.replace(/_/g, ' ').replace(/\s*[\[(](official|lyrics?|audio|video|hd|hq|\d{3,4}\s*kbps)[^\])]*[\])]/gi, '');
+    s = s.replace(/^\s*(?:cd\s*\d+\s*)?\d{1,3}\s*[-.)_]?\s+/i, '');   // track number
+    const parts = s.split(/\s+[-–—]\s+/).map(x => x.trim()).filter(Boolean);
+    if (parts.length >= 2) return { kind: 'music', artist: parts[0], title: parts.slice(1).join(' - '), key: null };
+    return { kind: 'music', artist: '', title: s.trim() || base, key: null };
+  }
+
   function parseTitle(fileName) {
+    if (isAudio(fileName)) return parseSong(String(fileName).replace(/^.*[\\/]/, '').replace(/\.[a-z0-9]{2,4}$/i, ''));
     const base = String(fileName || '').replace(/^.*[\\/]/, '').replace(/\.[a-z0-9]{2,4}$/i, '');
     let name = base.replace(/[._]+/g, ' ');
 
@@ -45,6 +58,7 @@
 
   function label(t) {
     if (!t) return '';
+    if (t.kind === 'music') return t.title + (t.artist ? ` — ${t.artist}` : '');
     if (t.kind === 'series') return `${t.show} · ${t.key}` + (t.episodeTitle ? ` · ${t.episodeTitle}` : '');
     return t.title + (t.year ? ` (${t.year})` : '');
   }
@@ -62,6 +76,6 @@
       });
   }
 
-  const api = { parseTitle, label, sortEpisodes };
+  const api = { parseTitle, label, sortEpisodes, isAudio };
   if (typeof module !== 'undefined') module.exports = api; else root.CVPTitles = api;
 })(this);

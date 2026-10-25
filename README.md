@@ -16,6 +16,10 @@ A single web page that keeps the same video in sync on two devices. Nothing is u
 - A big banner at the top shows what your partner is doing: "looking for a video", or "watching the movie *Inception (2010)*" / "the series *Breaking Bad*, Season 1 · Episode 3". The name comes from the file name (`titles.js` strips quality tags, groups, years, and reads S01E03 / 1x03 patterns). It warns when you two picked different things.
 - **Choose a series folder** (on a computer) or **Choose several episodes** (on phones, which can't pick folders). Episodes are sorted by season/episode. Picking an episode on one side switches the other side to the same episode, matched by season and episode number, so file names don't have to be identical. When an episode ends, both move on to the next one together.
 
+## Music and YouTube
+- **Music:** pick a song, or a folder of songs (album). Playback syncs the same way, and the banner says "Your partner is listening to *Song* by *Artist*" (parsed from names like `03 - Artist - Song.mp3`). An album plays through in order on both sides.
+- **YouTube:** tap **YouTube**, paste a link and press Watch. The video opens for your partner automatically (they don't need a file) and play/pause/seek stay in sync through the YouTube player (`yt.js`). YouTube only allows a few fixed speeds, so drift is corrected by small jumps instead of speed nudges. Some videos don't allow playing on other sites; the page says so.
+
 ## Use
 1. Open the page on both devices (must be served over https, e.g. GitHub Pages).
 2. Phone A: **Create room** → **Share link** (or read out the 6-letter code).

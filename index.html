@@ -44,13 +44,24 @@
   .eplist li.current button { background:#3a1f2c; }
   .eplist .tag { font:600 .75rem ui-monospace,Menlo,monospace; color:var(--accent); flex:none; }
   .eplist .who { margin-left:auto; font-size:.75rem; color:var(--muted); flex:none; }
+  .modes { display:flex; gap:8px; margin-bottom:12px; }
+  .mode { flex:1; background:var(--card); color:var(--fg); border:1px solid #3a3a48; font-weight:600; padding:12px; }
+  .mode.on { background:var(--accent); border-color:var(--accent); }
+  .yt-stage { aspect-ratio:16/9; background:#000; border-radius:12px; overflow:hidden; }
+  .yt-stage iframe, .yt-stage #ytPlayer { width:100%; height:100%; display:block; border:0; }
+  .audio-art { display:none; text-align:center; padding:28px 16px 18px; background:linear-gradient(160deg,#3a1f2c,#1a1a22); border-radius:12px 12px 0 0; }
+  .audio-art .note { font-size:3rem; line-height:1; color:var(--accent); }
+  .audio-art .song { font-size:1.3rem; font-weight:800; margin-top:8px; word-break:break-word; }
+  .audio-art .artist { color:var(--muted); margin-top:2px; }
+  .stage.audio .audio-art { display:block; }
+  .stage.audio video { height:56px; border-radius:0 0 12px 12px; }
   #log { font:12px ui-monospace,Menlo,monospace; color:var(--muted); max-height:120px; overflow:auto; white-space:pre-wrap; }
 </style>
 </head>
 <body>
 <main>
   <h1>Couple Player</h1>
-  <p class="sub">Watch the same video on two devices, in sync. Each device plays its own copy of the file. Only play, pause and seek commands travel between you, directly device to device.</p>
+  <p class="sub">Watch movies and series, listen to music, or watch YouTube together, in sync. Your own files play from your own device. Only play, pause and seek travel between you, directly device to device.</p>
 
   <section class="hero" id="hero" aria-live="polite">
     <div class="hero-kicker" id="heroKicker">Not connected</div>
@@ -83,24 +94,43 @@
     <div class="small" id="peerInfo" style="margin-top:6px"></div>
   </section>
 
-  <!-- Step 2: file -->
-  <section class="card">
-    <div class="small" style="margin-bottom:8px">Pick what to watch on this device (files never leave your device)</div>
-    <div class="row">
-      <label class="pick btn" id="movieBtn">Choose a video<input type="file" id="fileInput" accept="video/*,.mkv"></label>
-      <label class="pick btn ghost-btn" id="seriesBtn" style="background:transparent;border:1px solid #3a3a48">
-        <span id="seriesLabel">Choose a series folder</span><input type="file" id="seriesInput" multiple accept="video/*,.mkv">
-      </label>
-    </div>
-    <div class="small" id="fileInfo" style="margin-top:8px"></div>
-    <ul class="eplist hidden" id="epList"></ul>
-  </section>
+  <!-- What to watch: your own files, or YouTube -->
+  <div class="modes" role="tablist">
+    <button class="mode on" id="modeFiles" role="tab">📁 My files</button>
+    <button class="mode" id="modeYt" role="tab">▶ YouTube</button>
+  </div>
 
-  <!-- Step 3: watch -->
-  <section class="stage">
-    <video id="video" controls playsinline preload="auto"></video>
-    <div class="overlay" id="tapOverlay"><button id="tapBtn">Tap to start syncing</button></div>
-  </section>
+  <div id="filesPane">
+    <section class="card">
+      <div class="small" style="margin-bottom:8px">Pick a movie, an episode or a song on this device (files never leave your device)</div>
+      <div class="row">
+        <label class="pick btn" id="movieBtn">Choose a file<input type="file" id="fileInput" accept="video/*,audio/*,.mkv,.flac,.m4a,.opus"></label>
+        <label class="pick btn" id="seriesBtn" style="background:transparent;border:1px solid #3a3a48">
+          <span id="seriesLabel">Choose a folder (series or album)</span><input type="file" id="seriesInput" multiple accept="video/*,audio/*,.mkv,.flac,.m4a,.opus">
+        </label>
+      </div>
+      <div class="small" id="fileInfo" style="margin-top:8px"></div>
+      <ul class="eplist hidden" id="epList"></ul>
+    </section>
+
+    <section class="stage" id="stage">
+      <div class="audio-art" id="audioArt"><div class="note">♪</div><div class="song" id="songTitle"></div><div class="artist" id="songArtist"></div></div>
+      <video id="video" controls playsinline preload="auto"></video>
+      <div class="overlay" id="tapOverlay"><button id="tapBtn">Tap to start syncing</button></div>
+    </section>
+  </div>
+
+  <div id="ytPane" class="hidden">
+    <section class="card">
+      <div class="small" style="margin-bottom:8px">Paste a YouTube link. It opens for your partner too, and stays in sync.</div>
+      <div class="row">
+        <input type="text" id="ytInput" placeholder="https://youtu.be/…" autocomplete="off" style="text-transform:none;letter-spacing:0">
+        <button id="ytGo">Watch</button>
+      </div>
+      <div class="small" id="ytInfo" style="margin-top:8px"></div>
+    </section>
+    <section class="stage yt-stage"><div id="ytPlayer"></div></section>
+  </div>
   <p class="small" id="syncInfo"></p>
 
   <details class="card"><summary class="small">Debug log</summary><div id="log"></div></details>
@@ -108,6 +138,7 @@
 
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script src="titles.js"></script>
+<script src="yt.js"></script>
 <script>
 (() => {
   const $ = id => document.getElementById(id);
@@ -235,14 +266,18 @@
   const toLocal = remoteTs => remoteTs - offset;
 
   // ---------- playback sync ----------
+  // The sync code drives "media": the <video> element for local files, or the YouTube player.
+  const yt = new CVPYouTube.YTMedia('ytPlayer');
+  let media = video;
+  const onMedia = (ev, fn) => { video.addEventListener(ev, e => { if (media === video) fn(e); }); yt.addEventListener(ev, e => { if (media === yt) fn(e); }); };
   let isLeader = true;      // the last person who pressed play/pause/seek drives the heartbeat
   let applyingRemote = 0;   // suppress echo of our own programmatic changes
   let unlocked = false;     // mobile browsers need one tap before play() works
   let pendingState = null;
 
   function sendState(why) {
-    if (!link || !video.src) return;
-    link.send({ type: 'state', why, paused: video.paused, pos: video.currentTime, at: now(), name: video.dataset.name });
+    if (!link || !media.src) return;
+    link.send({ type: 'state', why, paused: media.paused, pos: media.currentTime, at: now(), name: media.dataset.name });
   }
 
   function expectedPos(m) {
@@ -250,66 +285,81 @@
     return m.pos + (now() - toLocal(m.at)) / 1000 * (m.rate || 1);
   }
 
-  function suppress(ms = 600) { applyingRemote++; setTimeout(() => applyingRemote--, ms); }
+  function suppress(ms = media === yt ? 1500 : 600) { lastApplied = null; applyingRemote++; setTimeout(() => applyingRemote--, ms); }
 
   async function applyState(m) {
-    if (!video.src || video.readyState < 1) { pendingState = m; return; }
-    if (!unlocked && !m.paused) { pendingState = m; $('tapOverlay').classList.add('show'); return; }
-    suppress();
+    if (!media.src || media.readyState < 1) { pendingState = m; return; }
+    if (!unlocked && !m.paused && media === video) { pendingState = m; $('tapOverlay').classList.add('show'); return; }
     const target = expectedPos(m);
-    if (Math.abs(video.currentTime - target) > 0.25) video.currentTime = Math.max(0, target);
-    video.playbackRate = 1;
-    if (m.paused && !video.paused) video.pause();
-    if (!m.paused && video.paused) {
-      try { await video.play(); }
+    const needSeek = Math.abs(media.currentTime - target) > (media.coarseRate ? 0.6 : 0.25);
+    if (!needSeek && m.paused === media.paused) { media.playbackRate = 1; return; } // already matching: don't mute our own events
+    suppress();
+    lastApplied = { paused: m.paused, pos: target, at: now(), until: now() + 2000 };
+    if (needSeek) media.currentTime = Math.max(0, target);
+    media.playbackRate = 1;
+    if (m.paused && !media.paused) media.pause();
+    if (!m.paused && media.paused) {
+      try { await media.play(); }
       catch (e) {
         log('play failed', e.name);
         if (e.name === 'NotAllowedError') { unlocked = false; pendingState = m; $('tapOverlay').classList.add('show'); }
-        else setTimeout(() => { if (video.paused && !m.paused) { suppress(); video.play().catch(() => {}); } }, 300); // interrupted by a seek: retry
+        else setTimeout(() => { if (media.paused && !m.paused) { suppress(); media.play().catch(() => {}); } }, 300); // interrupted by a seek: retry
       }
     }
   }
 
   // Follower nudges playback speed to stay within ~40 ms of the leader.
   function onHeartbeat(m) {
-    if (isLeader || !video.src || video.readyState < 2) return;
-    if (m.paused !== video.paused) return applyState(m);
+    if (isLeader || !media.src || media.readyState < 2) return;
+    if (m.paused !== media.paused) return applyState(m);
     if (m.paused) return;
-    const drift = expectedPos(m) - video.currentTime; // + means we are behind
+    const drift = expectedPos(m) - media.currentTime; // + means we are behind
     let action = 'in sync';
-    if (Math.abs(drift) > 0.5) { suppress(); video.currentTime = expectedPos(m) + 0.05; video.playbackRate = 1; action = 'jumped'; }
-    else if (Math.abs(drift) > 0.04) { video.playbackRate = 1 + Math.max(-0.08, Math.min(0.08, drift * 0.6)); action = 'adjusting'; }
-    else video.playbackRate = 1;
+    if (media.coarseRate) {
+      // YouTube: no fine speed control, so only jump when clearly off.
+      if (Math.abs(drift) > 0.7) { suppress(1200); lastApplied = { paused: false, pos: expectedPos(m) + 0.1, at: now(), until: now() + 2000 }; media.currentTime = lastApplied.pos; action = 'jumped'; }
+    } else if (Math.abs(drift) > 0.5) { suppress(); lastApplied = { paused: false, pos: expectedPos(m) + 0.05, at: now(), until: now() + 2000 }; media.currentTime = expectedPos(m) + 0.05; media.playbackRate = 1; action = 'jumped'; }
+    else if (Math.abs(drift) > 0.04) { media.playbackRate = 1 + Math.max(-0.08, Math.min(0.08, drift * 0.6)); action = 'adjusting'; }
+    else media.playbackRate = 1;
     $('syncInfo').textContent = `Sync: ${action}, off by ${Math.round(drift * 1000)} ms`;
   }
 
   setInterval(() => {
-    if (link && isLeader && video.src && !video.paused) {
-      link.send({ type: 'hb', paused: false, pos: video.currentTime, rate: video.playbackRate, at: now(), name: video.dataset.name });
+    if (link && isLeader && media.src && !media.paused) {
+      link.send({ type: 'hb', paused: false, pos: media.currentTime, rate: media.playbackRate, at: now(), name: media.dataset.name });
       $('syncInfo').textContent = 'Sync: you are leading';
     }
   }, 1000);
 
+  // Right after we apply the partner's state, our player fires its own play/pause/seek events.
+  // Skip those echoes, but still pass on a real tap that happens in the same moment.
+  let lastApplied = null;
+  function isEcho(why) {
+    const la = lastApplied;
+    if (!la || now() > la.until) return true; // other short local changes: always quiet
+    if (why === 'seek') return Math.abs(media.currentTime - (la.paused ? la.pos : la.pos + (now() - la.at) / 1000)) < 1;
+    return media.paused === la.paused;
+  }
   function onLocalChange(why) {
-    if (applyingRemote) return;
-    if (!unlocked) unlocked = true; // a real tap on the video controls counts
+    if (applyingRemote && isEcho(why)) return;
+    if (!unlocked) unlocked = true; // a real tap on the media controls counts
     isLeader = true;
     sendState(why);
   }
-  video.addEventListener('play', () => onLocalChange('play'));
-  video.addEventListener('pause', () => onLocalChange('pause'));
-  video.addEventListener('seeked', () => onLocalChange('seek'));
+  onMedia('play', () => onLocalChange('play'));
+  onMedia('pause', () => onLocalChange('pause'));
+  onMedia('seeked', () => onLocalChange('seek'));
 
   // If our side stalls (buffering), pause the partner until we recover.
   // Only pause the partner if we're stuck loading for a while, not for a quick seek.
   let stallTimer = null, stalled = false;
-  video.addEventListener('waiting', () => {
+  onMedia('waiting', () => {
     clearTimeout(stallTimer);
     stallTimer = setTimeout(() => {
-      if (link && !applyingRemote && isLeader && !video.paused) { stalled = true; link.send({ type: 'state', why: 'buffer', paused: true, pos: video.currentTime, at: now(), name: video.dataset.name }); }
+      if (link && !applyingRemote && isLeader && !media.paused) { stalled = true; link.send({ type: 'state', why: 'buffer', paused: true, pos: media.currentTime, at: now(), name: media.dataset.name }); }
     }, 1000);
   });
-  video.addEventListener('playing', () => {
+  onMedia('playing', () => {
     clearTimeout(stallTimer);
     if (stalled && link && isLeader && !applyingRemote) sendState('resume');
     stalled = false;
@@ -321,9 +371,11 @@
       case 'pong': onPong(m); break;
       case 'state': if (otherEpisode(m)) break; isLeader = false; log('remote', m.why, m.paused ? 'paused' : 'playing', m.pos.toFixed(2)); applyState(m); break;
       case 'hb': if (!otherEpisode(m)) onHeartbeat(m); break;
-      case 'file': partner.file = m; partner.presence = 'idle'; partner.cantPlay = null; if (partner.missing && !sameVideo(partner.missing, m.name)) partner.missing = null; renderHero(); renderEpisodes(); break;
+      case 'file': if (m.name.startsWith('yt:') && mode2 !== 'yt') openYouTube(m.name.slice(3), false); partner.file = m; partner.presence = 'idle'; partner.cantPlay = null; if (partner.missing && !sameVideo(partner.missing, m.name)) partner.missing = null; renderHero(); renderEpisodes(); break;
+      case 'left-yt': partner.file = null; partner.presence = 'browsing'; renderHero(); break;
       case 'presence': partner.presence = m.state; renderHero(); break;
-      case 'episode': onRemoteEpisode(m); break;
+      case 'episode': if (mode2 === 'yt') setMode('files', false); onRemoteEpisode(m); break;
+      case 'yt': partner.file = { name: 'yt:' + m.id, title: m.title || '' }; partner.presence = 'idle'; openYouTube(m.id, false); break;
       case 'need-state': sendState('sync'); break;
       case 'cant-play': partner.cantPlay = m.name; renderHero(); break;
     }
@@ -338,16 +390,21 @@
 
   const { parseTitle, label, sortEpisodes } = window.CVPTitles;
   const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  const VIDEO_EXT = /\.(mp4|m4v|mkv|mk3d|webm|mov|avi|ts|m2ts|wmv|ogv)$/i;
+  const VIDEO_EXT = /\.(mp4|m4v|mkv|mk3d|webm|mov|avi|ts|m2ts|wmv|ogv|mp3|m4a|aac|flac|wav|ogg|oga|opus|wma|aiff?)$/i;
   let playlist = [], epIndex = -1, autoPlayNext = false;
   let partner = { presence: 'none', file: null, cantPlay: null, missing: null };
 
   // Series button: a folder picker on computers, a multi-file picker on phones (iOS can't pick folders).
   if (!isMobile && 'webkitdirectory' in document.createElement('input')) $('seriesInput').webkitdirectory = true;
-  else $('seriesLabel').textContent = 'Choose several episodes';
+  else $('seriesLabel').textContent = 'Choose several files (episodes or songs)';
 
   function loadFile(f) {
+    if (mode2 === 'yt') setMode('files', false);
     currentFile = f;
+    // Music: show the song name instead of a black video box.
+    const song = window.CVPTitles.isAudio(f.name) ? parseTitle(f.name) : null;
+    $('stage').classList.toggle('audio', !!song);
+    if (song) { $('songTitle').textContent = song.title; $('songArtist').textContent = song.artist; }
     if (repack) { repack.destroy(); repack = null; }
     if (video.src && mode === 'native') URL.revokeObjectURL(video.src);
     video.dataset.name = f.name; video.dataset.size = f.size;
@@ -367,7 +424,7 @@
 
   $('seriesInput').addEventListener('change', e => {
     const files = [...e.target.files].filter(f => VIDEO_EXT.test(f.name) && !f.name.startsWith('.'));
-    if (!files.length) { setFileMsg('No video files found in that selection.', true); return sendPresence('idle'); }
+    if (!files.length) { setFileMsg('No video or music files found in that selection.', true); return sendPresence('idle'); }
     playlist = sortEpisodes(files);
     // Start where the partner is, if we have that episode; else the first one.
     const pk = partner.file && parseTitle(partner.file.name);
@@ -418,7 +475,7 @@
       if (i === epIndex) li.className = 'current';
       const b = document.createElement('button');
       const tag = e.t.kind === 'series' ? e.t.key : String(i + 1).padStart(2, '0');
-      const name = e.t.kind === 'series' ? (e.t.episodeTitle || 'Episode ' + e.t.episode) : e.file.name;
+      const name = e.t.kind === 'series' ? (e.t.episodeTitle || 'Episode ' + e.t.episode) : e.t.kind === 'music' ? label(e.t) : e.file.name;
       const partnerHere = pName && findEpisodeIn(e, pName);
       b.innerHTML = `<span class="tag"></span><span class="nm"></span><span class="who"></span>`;
       b.querySelector('.tag').textContent = tag;
@@ -452,10 +509,56 @@
 
   // Ignore play/pause/position from a partner who is on a different episode (e.g. mid-switch).
   function otherEpisode(m) {
-    if (!m.name || !currentFile) return false;
+    if (!m.name) return false;
+    const mineName = media === yt ? yt.dataset.name : currentFile && currentFile.name;
+    if (m.name.startsWith('yt:') || (mineName || '').startsWith('yt:')) return m.name !== mineName; // different YouTube video, or one of us isn't on YouTube
+    if (!currentFile) return false;
     const a = parseTitle(m.name), b = parseTitle(currentFile.name);
     return a.kind === 'series' && b.kind === 'series' && (a.season !== b.season || a.episode !== b.episode);
   }
+
+  // ---------- my files / YouTube ----------
+  let mode2 = 'files';
+  function setMode(m, announce = true) {
+    if (m === mode2) return;
+    mode2 = m;
+    $('modeFiles').classList.toggle('on', m === 'files');
+    $('modeYt').classList.toggle('on', m === 'yt');
+    $('filesPane').classList.toggle('hidden', m !== 'files');
+    $('ytPane').classList.toggle('hidden', m !== 'yt');
+    if (m === 'yt') { if (!video.paused) { suppress(); video.pause(); } media = yt; }
+    else { if (yt.player && !yt.paused) { suppress(); yt.pause(); } media = video; }
+    isLeader = true;
+    if (announce && link && m === 'files') link.send(currentFile ? { type: 'episode', name: currentFile.name } : { type: 'left-yt' });
+    if (announce && link && m === 'yt' && yt.id) link.send({ type: 'yt', id: yt.id, title: yt.dataset.title || '' });
+    renderHero();
+  }
+  $('modeFiles').onclick = () => setMode('files');
+  $('modeYt').onclick = () => setMode('yt');
+
+  async function openYouTube(id, announce) {
+    setMode('yt', false);
+    $('ytInput').value = 'https://youtu.be/' + id;
+    if (yt.id === id) { renderHero(); return; }
+    $('ytInfo').textContent = 'Loading…'; $('ytInfo').className = 'small';
+    if (announce && link) link.send({ type: 'yt', id });
+    try { await yt.load(id); }
+    catch (e) { $('ytInfo').textContent = e.message; $('ytInfo').className = 'small warn'; }
+    renderHero();
+  }
+  $('ytGo').onclick = () => {
+    const id = CVPYouTube.parseId($('ytInput').value);
+    if (!id) { $('ytInfo').textContent = "That doesn't look like a YouTube link."; $('ytInfo').className = 'small warn'; return; }
+    openYouTube(id, true);
+  };
+  $('ytInput').addEventListener('keydown', e => { if (e.key === 'Enter') $('ytGo').click(); });
+  yt.addEventListener('loadedmetadata', () => {
+    $('ytInfo').textContent = (yt.dataset.title || 'YouTube video') + (yt.duration ? ' · ' + fmt(yt.duration) : '');
+    $('ytInfo').className = 'small';
+    if (link) { link.send({ type: 'file', name: yt.dataset.name, title: yt.dataset.title || '', duration: yt.duration }); link.send({ type: 'need-state' }); }
+    renderHero();
+  });
+  yt.addEventListener('error', e => { $('ytInfo').textContent = 'YouTube error ' + (e.detail && e.detail.code) + ': this video may not allow embedding on other sites.'; $('ytInfo').className = 'small warn'; });
 
   // ---------- the big banner ----------
   function setHero(kicker, title, sub, opts = {}) {
@@ -465,41 +568,46 @@
     $('heroSub').textContent = sub || '';
     $('heroSub').className = 'hero-sub' + (opts.warn ? ' warn' : '');
   }
-  function describe(name) {
+  function describe(name, ytTitle) {
+    if (name.startsWith('yt:')) return { t: { kind: 'yt' }, title: ytTitle || 'a YouTube video', sub: 'YouTube', verb: 'watching', what: 'on YouTube' };
     const t = parseTitle(name);
-    if (t.kind === 'series') return { t, title: t.show, sub: `Season ${t.season} · Episode ${t.episode}` + (t.episodeTitle ? ` · ${t.episodeTitle}` : ''), what: 'the series' };
-    return { t, title: t.title + (t.year ? ` (${t.year})` : ''), sub: 'Movie', what: 'the movie' };
+    if (t.kind === 'music') return { t, title: t.title, sub: t.artist || 'Song', verb: 'listening to', what: '' };
+    if (t.kind === 'series') return { t, title: t.show, sub: `Season ${t.season} · Episode ${t.episode}` + (t.episodeTitle ? ` · ${t.episodeTitle}` : ''), verb: 'watching', what: 'the series' };
+    return { t, title: t.title + (t.year ? ` (${t.year})` : ''), sub: 'Movie', verb: 'watching', what: 'the movie' };
   }
+  const phrase = (who, d) => `${who} ${d.verb} ${d.what}`.trim();
   function sameVideo(a, b) {
+    if (a.startsWith('yt:') || b.startsWith('yt:')) return a === b;
     const ta = parseTitle(a), tb = parseTitle(b);
     if (ta.kind === 'series' && tb.kind === 'series') return ta.season === tb.season && ta.episode === tb.episode;
     return a === b || label(ta).toLowerCase() === label(tb).toLowerCase();
   }
   function renderHero() {
-    const mine = currentFile && currentFile.name;
+    const mine = media === yt ? (yt.id ? yt.dataset.name : null) : currentFile && currentFile.name;
+    const mineTitle = media === yt ? yt.dataset.title : '';
     if (!link) {
       const waiting = $('shareCard') && !$('shareCard').classList.contains('hidden');
       return setHero(waiting ? 'Room open' : 'Not connected', waiting ? 'Waiting for your partner to join…' : 'Create a room, or join your partner\'s', waiting ? 'Share the link or the code below.' : '', { pulse: waiting });
     }
-    if (partner.presence === 'browsing') return setHero('Your partner', 'is looking for a video…', mine ? 'You picked ' + label(parseTitle(mine)) + '.' : '', { pulse: true });
+    if (partner.presence === 'browsing') return setHero('Your partner', 'is looking for something to play…', mine ? 'You picked ' + describe(mine, mineTitle).title + '.' : '', { pulse: true });
     if (partner.cantPlay) return setHero('Your partner', 'can\'t play their file', partner.cantPlay + ' needs to be converted to MP4 on their side.', { warn: true });
     if (partner.missing) {
       const d = describe(partner.missing);
-      return setHero('Your partner moved to', d.title, d.sub + ' · You don\'t have this episode in your selection.', { warn: true });
+      return setHero('Your partner moved to', d.title, d.sub + ' · You don\'t have this one in your selection.', { warn: true });
     }
     if (!partner.file) {
-      if (mine) { const d = describe(mine); return setHero('You picked', d.title, d.sub + ' · Waiting for your partner to pick the same file…', { pulse: true }); }
-      return setHero('Connected', 'Pick something to watch', 'Your partner hasn\'t chosen a video yet either.');
+      if (mine) { const d = describe(mine, mineTitle); return setHero('You picked', d.title, d.sub + ' · Waiting for your partner…', { pulse: true }); }
+      return setHero('Connected', 'Pick something to play', 'A movie, a series, music, or a YouTube video.');
     }
-    const d = describe(partner.file.name);
-    if (!mine) return setHero('Your partner is watching ' + d.what, d.title, d.sub + ' · Find the same file on this device to join in.');
+    const d = describe(partner.file.name, partner.file.title);
+    if (!mine) return setHero(phrase('Your partner is', d), d.title, d.sub + ' · Find the same file on this device to join in.');
     if (!sameVideo(mine, partner.file.name)) {
-      const me = describe(mine);
-      return setHero('Your partner is watching ' + d.what, d.title, `${d.sub} · But you picked ${me.title}${me.t.kind === 'series' ? ' ' + me.t.key : ''}. Pick the same one.`, { warn: true });
+      const me = describe(mine, mineTitle);
+      return setHero(phrase('Your partner is', d), d.title, `${d.sub} · But you picked ${me.title}${me.t.kind === 'series' ? ' ' + me.t.key : ''}. Pick the same one.`, { warn: true });
     }
     let sub = d.sub;
-    if (partner.file.duration && video.duration && Math.abs(video.duration - partner.file.duration) > 2) { sub += ' · Lengths differ a bit, so this may be a different cut.'; }
-    return setHero('You\'re both watching ' + d.what, d.title, sub, { warn: sub.includes('differ') });
+    if (media === video && partner.file.duration && video.duration && Math.abs(video.duration - partner.file.duration) > 2) { sub += ' · Lengths differ a bit, so this may be a different version.'; }
+    return setHero(phrase('You\'re both', d), d.title, sub, { warn: sub.includes('differ') });
   }
 
   async function startRepack(f) {
@@ -573,6 +681,7 @@
     try { hosting = hosting || sessionStorage.getItem('cvp-host') === code; } catch (_) {}
     if (hosting) hostRoom(code); else joinRoom(code);
   }
+  window.__yt = yt;
   window.__cvp = { video, get offset() { return offset; }, get leader() { return isLeader; } };
 })();
 </script>
