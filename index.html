@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Couple Player</title>
+<style>
+  :root { --bg:#0f0f14; --card:#1a1a22; --fg:#f2f2f5; --muted:#9a9aa8; --accent:#ff5c8a; --ok:#3ecf8e; --warn:#f5b84b; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  main { max-width:860px; margin:0 auto; padding:16px; }
+  h1 { font-size:1.4rem; margin:4px 0 2px; }
+  .sub { color:var(--muted); margin:0 0 16px; font-size:.92rem; }
+  .card { background:var(--card); border-radius:14px; padding:14px; margin-bottom:12px; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  button, .btn { background:var(--accent); color:#fff; border:0; border-radius:10px; padding:10px 14px; font-size:1rem; cursor:pointer; }
+  button.ghost { background:transparent; border:1px solid #3a3a48; color:var(--fg); }
+  button:disabled { opacity:.45; cursor:default; }
+  input[type=text] { flex:1; min-width:120px; background:#0f0f14; color:var(--fg); border:1px solid #3a3a48; border-radius:10px; padding:10px; font-size:1rem; text-transform:uppercase; letter-spacing:.15em; }
+  input[type=file] { color:var(--muted); max-width:100%; }
+  .code { font:700 1.6rem ui-monospace,Menlo,monospace; letter-spacing:.2em; color:var(--accent); }
+  .status { display:flex; align-items:center; gap:8px; font-size:.95rem; }
+  .dot { width:10px; height:10px; border-radius:50%; background:#555; flex:none; }
+  .dot.ok { background:var(--ok); } .dot.wait { background:var(--warn); }
+  video { width:100%; max-height:70vh; background:#000; border-radius:12px; display:block; }
+  .stage { position:relative; }
+  .overlay { position:absolute; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.6); border-radius:12px; }
+  .overlay.show { display:flex; }
+  .small { font-size:.85rem; color:var(--muted); }
+  .warn { color:var(--warn); }
+  .hidden { display:none !important; }
+  #log { font:12px ui-monospace,Menlo,monospace; color:var(--muted); max-height:120px; overflow:auto; white-space:pre-wrap; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Couple Player</h1>
+  <p class="sub">Watch the same video on two devices, in sync. Each device plays its own copy of the file. Only play, pause and seek commands travel between you, directly device to device.</p>
+
+  <!-- Step 1: room -->
+  <section class="card" id="roomCard">
+    <div class="row" style="margin-bottom:10px">
+      <button id="createBtn">Create room</button>
+      <span class="small">or join one:</span>
+    </div>
+    <div class="row">
+      <input type="text" id="codeInput" placeholder="CODE" maxlength="6" autocomplete="off">
+      <button id="joinBtn" class="ghost">Join</button>
+    </div>
+  </section>
+
+  <section class="card hidden" id="shareCard">
+    <div class="small">Room code</div>
+    <div class="row" style="justify-content:space-between">
+      <span class="code" id="codeOut"></span>
+      <button id="shareBtn" class="ghost">Share link</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="status"><span class="dot" id="dot"></span><span id="statusText">Not connected</span></div>
+    <div class="small" id="peerInfo" style="margin-top:6px"></div>
+  </section>
+
+  <!-- Step 2: file -->
+  <section class="card">
+    <div class="small" style="margin-bottom:6px">Pick the video on this device (it never leaves your device)</div>
+    <input type="file" id="fileInput" accept="video/*,.mkv">
+    <div class="small" id="fileInfo" style="margin-top:6px"></div>
+  </section>
+
+  <!-- Step 3: watch -->
+  <section class="stage">
+    <video id="video" controls playsinline preload="auto"></video>
+    <div class="overlay" id="tapOverlay"><button id="tapBtn">Tap to start syncing</button></div>
+  </section>
+  <p class="small" id="syncInfo"></p>
+
+  <details class="card"><summary class="small">Debug log</summary><div id="log"></div></details>
+</main>
+
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const video = $('video');
+  const params = new URLSearchParams(location.search);
+  const PREFIX = 'cvp-couple-'; // namespace on the public PeerJS signaling server
+
+  // ---------- helpers ----------
+  const now = () => performance.timeOrigin + performance.now();
+  const log = (...a) => { const l = $('log'); l.textContent = (new Date().toLocaleTimeString() + ' ' + a.join(' ') + '\n' + l.textContent).slice(0, 4000); console.log(...a); };
+  const setStatus = (text, kind) => { $('statusText').textContent = text; $('dot').className = 'dot ' + (kind || ''); };
+  const makeCode = () => { const c = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; let s = ''; for (let i = 0; i < 6; i++) s += c[Math.floor(Math.random() * c.length)]; return s; };
+
+  // ---------- transport (PeerJS data channel; BroadcastChannel in ?test mode) ----------
+  let link = null;        // { send(obj) }
+  let peer = null;
+  function onLinkOpen(sendFn) {
+    link = { send: o => { try { sendFn(JSON.stringify(o)); } catch (e) { log('send failed', e); } } };
+    setStatus('Connected', 'ok');
+    $('roomCard').classList.add('hidden');
+    startClockSync();
+    sendFileInfo();
+    if (isLeader) sendState('hello');
+  }
+  function onLinkClose() { link = null; setStatus('Disconnected. Refresh both pages to reconnect.', ''); stopClockSync(); }
+  function onRaw(data) { try { handle(JSON.parse(data)); } catch (e) { log('bad msg', e); } }
+
+  function wirePeerConn(conn) {
+    conn.on('open', () => { log('data channel open'); onLinkOpen(d => conn.send(d)); });
+    conn.on('data', onRaw);
+    conn.on('close', onLinkClose);
+    conn.on('error', e => log('conn error', e));
+  }
+
+  function hostRoom(code) {
+    showCode(code);
+    if (params.has('test')) return testTransport(code, true);
+    setStatus('Waiting for your partner to join…', 'wait');
+    peer = new Peer(PREFIX + code, { debug: 1 });
+    peer.on('open', () => log('room ready', code));
+    peer.on('connection', conn => {
+      if (link) { conn.close(); return; } // only two people per room
+      wirePeerConn(conn);
+    });
+    peer.on('error', e => {
+      log('peer error', e.type);
+      if (e.type === 'unavailable-id') { hostRoom(makeCode()); }
+      else setStatus('Connection error: ' + e.type, '');
+    });
+  }
+
+  function joinRoom(code) {
+    isLeader = false;
+    showCode(code);
+    if (params.has('test')) return testTransport(code, false);
+    setStatus('Connecting…', 'wait');
+    peer = new Peer({ debug: 1 });
+    peer.on('open', () => wirePeerConn(peer.connect(PREFIX + code, { reliable: true })));
+    peer.on('error', e => {
+      log('peer error', e.type);
+      setStatus(e.type === 'peer-unavailable' ? 'Room not found. Check the code.' : 'Connection error: ' + e.type, '');
+    });
+  }
+
+  // Same-browser test transport so the sync logic can be tested without a network.
+  function testTransport(code, host) {
+    const bc = new BroadcastChannel('cvp-' + code);
+    let opened = false;
+    bc.onmessage = e => {
+      if (e.data === 'hi' || e.data === 'hi-ack') { if (e.data === 'hi') bc.postMessage('hi-ack'); if (!opened) { opened = true; onLinkOpen(d => bc.postMessage(d)); } return; }
+      onRaw(e.data);
+    };
+    bc.postMessage('hi');
+  }
+
+  function showCode(code) {
+    $('codeOut').textContent = code;
+    $('shareCard').classList.remove('hidden');
+    $('roomCard').classList.add('hidden');
+    const u = new URL(location.href); u.searchParams.set('room', code);
+    history.replaceState(null, '', u);
+  }
+
+  // ---------- clock sync (NTP style) ----------
+  // offset = remoteClock - localClock, picked from the sample with the lowest round trip.
+  let offset = 0, bestRtt = Infinity, rtt = 0, pingTimer = null, samples = [];
+  function startClockSync() {
+    let n = 0;
+    const ping = () => { link && link.send({ type: 'ping', t0: now() }); if (++n === 8) { clearInterval(pingTimer); pingTimer = setInterval(ping, 5000); } };
+    pingTimer = setInterval(ping, 250); ping();
+  }
+  function stopClockSync() { clearInterval(pingTimer); }
+  function onPong(m) {
+    const t2 = now(), r = t2 - m.t0;
+    samples.push({ r, off: m.t1 - (m.t0 + t2) / 2 });
+    if (samples.length > 20) samples.shift();
+    const best = samples.reduce((a, b) => (b.r < a.r ? b : a));
+    offset = best.off; bestRtt = best.r; rtt = r;
+    $('peerInfo').textContent = `Latency ${Math.round(r / 2)} ms one way`;
+  }
+  const toLocal = remoteTs => remoteTs - offset;
+
+  // ---------- playback sync ----------
+  let isLeader = true;      // the last person who pressed play/pause/seek drives the heartbeat
+  let applyingRemote = 0;   // suppress echo of our own programmatic changes
+  let unlocked = false;     // mobile browsers need one tap before play() works
+  let pendingState = null;
+  let remoteFile = null;
+
+  function sendState(why) {
+    if (!link || !video.src) return;
+    link.send({ type: 'state', why, paused: video.paused, pos: video.currentTime, at: now() });
+  }
+
+  function expectedPos(m) {
+    if (m.paused) return m.pos;
+    return m.pos + (now() - toLocal(m.at)) / 1000 * (m.rate || 1);
+  }
+
+  function suppress(ms = 600) { applyingRemote++; setTimeout(() => applyingRemote--, ms); }
+
+  async function applyState(m) {
+    if (!video.src || video.readyState < 1) { pendingState = m; return; }
+    if (!unlocked && !m.paused) { pendingState = m; $('tapOverlay').classList.add('show'); return; }
+    suppress();
+    const target = expectedPos(m);
+    if (Math.abs(video.currentTime - target) > 0.25) video.currentTime = Math.max(0, target);
+    video.playbackRate = 1;
+    if (m.paused && !video.paused) video.pause();
+    if (!m.paused && video.paused) {
+      try { await video.play(); }
+      catch (e) { log('play blocked', e.name); unlocked = false; pendingState = m; $('tapOverlay').classList.add('show'); }
+    }
+  }
+
+  // Follower nudges playback speed to stay within ~40 ms of the leader.
+  function onHeartbeat(m) {
+    if (isLeader || !video.src || video.readyState < 2) return;
+    if (m.paused !== video.paused) return applyState(m);
+    if (m.paused) return;
+    const drift = expectedPos(m) - video.currentTime; // + means we are behind
+    let action = 'in sync';
+    if (Math.abs(drift) > 0.5) { suppress(); video.currentTime = expectedPos(m) + 0.05; video.playbackRate = 1; action = 'jumped'; }
+    else if (Math.abs(drift) > 0.04) { video.playbackRate = 1 + Math.max(-0.08, Math.min(0.08, drift * 0.6)); action = 'adjusting'; }
+    else video.playbackRate = 1;
+    $('syncInfo').textContent = `Sync: ${action}, off by ${Math.round(drift * 1000)} ms`;
+  }
+
+  setInterval(() => {
+    if (link && isLeader && video.src && !video.paused) {
+      link.send({ type: 'hb', paused: false, pos: video.currentTime, rate: video.playbackRate, at: now() });
+      $('syncInfo').textContent = 'Sync: you are leading';
+    }
+  }, 1000);
+
+  function onLocalChange(why) {
+    if (applyingRemote) return;
+    if (!unlocked) unlocked = true; // a real tap on the video controls counts
+    isLeader = true;
+    sendState(why);
+  }
+  video.addEventListener('play', () => onLocalChange('play'));
+  video.addEventListener('pause', () => onLocalChange('pause'));
+  video.addEventListener('seeked', () => onLocalChange('seek'));
+
+  // If our side stalls (buffering), pause the partner until we recover.
+  video.addEventListener('waiting', () => { if (link && !applyingRemote && isLeader) link.send({ type: 'state', why: 'buffer', paused: true, pos: video.currentTime, at: now() }); });
+  video.addEventListener('playing', () => { if (link && isLeader && !applyingRemote) sendState('resume'); });
+
+  function handle(m) {
+    switch (m.type) {
+      case 'ping': link.send({ type: 'pong', t0: m.t0, t1: now() }); break;
+      case 'pong': onPong(m); break;
+      case 'state': isLeader = false; log('remote', m.why, m.paused ? 'paused' : 'playing', m.pos.toFixed(2)); applyState(m); break;
+      case 'hb': onHeartbeat(m); break;
+      case 'file': remoteFile = m; checkFiles(); break;
+      case 'need-state': sendState('sync'); break;
+    }
+  }
+
+  // ---------- local file ----------
+  $('fileInput').addEventListener('change', e => {
+    const f = e.target.files[0]; if (!f) return;
+    if (video.src) URL.revokeObjectURL(video.src);
+    video.src = URL.createObjectURL(f);
+    video.dataset.name = f.name; video.dataset.size = f.size;
+    $('tapOverlay').classList.add('show');
+  });
+  video.addEventListener('loadedmetadata', () => {
+    $('fileInfo').textContent = `${video.dataset.name} · ${fmt(video.duration)}`;
+    sendFileInfo(); checkFiles();
+    if (link) link.send({ type: 'need-state' });
+  });
+  function sendFileInfo() { if (link && video.src && video.duration) link.send({ type: 'file', name: video.dataset.name, size: +video.dataset.size, duration: video.duration }); }
+  function checkFiles() {
+    if (!remoteFile) return;
+    let msg = `Partner has: ${remoteFile.name} · ${fmt(remoteFile.duration)}`;
+    if (video.duration && Math.abs(video.duration - remoteFile.duration) > 1) msg += ' (looks like a different file!)';
+    $('peerInfo').textContent = msg;
+    $('peerInfo').className = 'small' + (msg.includes('different') ? ' warn' : '');
+  }
+  const fmt = s => { s = Math.round(s || 0); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60; return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0'); };
+
+  // One tap unlocks programmatic play on iOS/Android, then catches up to the partner.
+  $('tapBtn').addEventListener('click', async () => {
+    $('tapOverlay').classList.remove('show');
+    suppress(800);
+    try { await video.play(); if (!pendingState || pendingState.paused) video.pause(); unlocked = true; } catch (e) { log('unlock failed', e.name); }
+    if (pendingState) { const p = pendingState; pendingState = null; applyState(p); }
+    else if (link) link.send({ type: 'need-state' });
+  });
+
+  // ---------- room UI ----------
+  $('createBtn').onclick = () => hostRoom(makeCode());
+  $('joinBtn').onclick = () => { const c = $('codeInput').value.trim().toUpperCase(); if (c.length >= 4) joinRoom(c); };
+  $('codeInput').addEventListener('keydown', e => { if (e.key === 'Enter') $('joinBtn').click(); });
+  $('shareBtn').onclick = async () => {
+    const url = location.href;
+    if (navigator.share) { try { await navigator.share({ title: 'Watch with me', url }); } catch (_) {} }
+    else { await navigator.clipboard.writeText(url); $('shareBtn').textContent = 'Copied!'; setTimeout(() => $('shareBtn').textContent = 'Share link', 1500); }
+  };
+  if (params.get('room')) {
+    const code = params.get('room').toUpperCase();
+    if (params.has('host')) hostRoom(code); else joinRoom(code);
+  }
+  window.__cvp = { video, get offset() { return offset; }, get leader() { return isLeader; } };
+})();
+</script>
+</body>
+</html>
