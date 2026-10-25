@@ -107,6 +107,8 @@
   .ytcard .dur { position:absolute; right:6px; bottom:6px; background:rgba(0,0,0,.8); font-size:.72rem; padding:1px 5px; border-radius:4px; }
   .ytcard .t { font-size:.85rem; font-weight:600; padding:6px 8px 2px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
   .ytcard .c { font-size:.75rem; color:var(--muted); padding:0 8px 8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #vimeoBox { aspect-ratio:16/9; background:#000; border-radius:12px; overflow:hidden; }
+  #vimeoBox iframe { width:100%; height:100%; border:0; display:block; }
   #log { font:12px ui-monospace,Menlo,monospace; color:var(--muted); max-height:120px; overflow:auto; white-space:pre-wrap; }
 </style>
 </head>
@@ -152,6 +154,7 @@
     <button class="mode on" id="modeVideo" role="tab">🎬 Video</button>
     <button class="mode" id="modeMusic" role="tab">🎵 Music</button>
     <button class="mode" id="modeYt" role="tab">▶ YouTube</button>
+    <button class="mode" id="modeWeb" role="tab">🌐 Links</button>
   </div>
 
   <div id="videoPane">
@@ -189,6 +192,31 @@
       <div class="row" style="justify-content:center;margin-top:10px"><button id="heartBtn" class="glass">💗 Send a heart</button></div>
       <ul class="eplist songlist hidden" id="songList"></ul>
       <div class="overlay" id="tapOverlay2"><button class="tapBtn">Tap to join the music</button></div>
+    </section>
+  </div>
+
+  <div id="webPane" class="hidden">
+    <section class="card">
+      <div class="small" style="margin-bottom:8px">Paste a video link from another site. It opens for your partner too, and stays in sync.</div>
+      <div class="row">
+        <input type="text" id="webInput" placeholder="https://…/video.mp4, .m3u8 or vimeo.com/…" autocomplete="off" style="text-transform:none;letter-spacing:0">
+        <button id="webGo">Play</button>
+      </div>
+      <div class="small" id="webInfo" style="margin-top:8px"></div>
+      <details style="margin-top:8px"><summary class="small">What links work?</summary>
+        <div class="small" style="margin-top:6px;line-height:1.6">
+          ✅ Direct video or audio files (address ends in .mp4, .webm, .mov, .mp3…)<br>
+          ✅ Stream links (address ends in .m3u8)<br>
+          ✅ Vimeo videos<br>
+          ❌ Netflix, Prime Video, Disney+/Hotstar, JioCinema, SonyLIV and similar: they lock their videos (DRM), so no other site can play them<br>
+          ❌ Ordinary web pages with a video somewhere on them: you need the video's own address, not the page's
+        </div>
+      </details>
+    </section>
+    <section class="stage" id="webStage">
+      <video id="webVideo" controls playsinline preload="auto" class="hidden"></video>
+      <div id="vimeoBox" class="hidden"></div>
+      <div class="overlay" id="tapOverlay3"><button class="tapBtn">Tap to start syncing</button></div>
     </section>
   </div>
 
@@ -242,6 +270,7 @@
 <script src="titles.js"></script>
 <script src="ytbrowse.js"></script>
 <script src="yt.js"></script>
+<script src="web.js"></script>
 <script>
 (() => {
   const $ = id => document.getElementById(id);
@@ -265,7 +294,7 @@
     startClockSync();
     sendFileInfo();
     if (playlist.length && epIndex >= 0) link.send({ type: 'episode', name: playlist[epIndex].file.name });
-    if (media === yt && yt.id && !pendingShare) link.send({ type: 'file', name: yt.dataset.name, title: yt.dataset.title || '', duration: yt.duration });
+    if (media !== video && media.src && !pendingShare) link.send({ type: 'file', name: media.dataset.name, title: media.dataset.title || '', duration: media.duration || 0 });
     if (pendingShare) { const id = pendingShare; pendingShare = null; setTimeout(() => announcePick('yt:' + id, { how: 'share' }), 800); }
     if (isLeader) sendState('hello');
     renderHero();
@@ -376,8 +405,12 @@
   // ---------- playback sync ----------
   // The sync code drives "media": the <video> element for local files, or the YouTube player.
   const yt = new CVPYouTube.YTMedia('ytPlayer');
+  const webVideo = $('webVideo');
+  const vimeo = new CVPWeb.VimeoMedia($('vimeoBox'));
   let media = video;
-  const onMedia = (ev, fn) => { video.addEventListener(ev, e => { if (media === video) fn(e); }); yt.addEventListener(ev, e => { if (media === yt) fn(e); }); };
+  const SOURCES = [video, yt, webVideo, vimeo];
+  const onMedia = (ev, fn) => { for (const src of SOURCES) src.addEventListener(ev, e => { if (media === src) fn(e); }); };
+  const needsTap = () => media === video || media === webVideo; // our own <video>s; YouTube/Vimeo have their own play button
   let isLeader = true;      // the last person who pressed play/pause/seek drives the heartbeat
   let applyingRemote = 0;   // suppress echo of our own programmatic changes
   let unlocked = false;     // mobile browsers need one tap before play() works
@@ -397,7 +430,7 @@
 
   async function applyState(m) {
     if (!media.src || media.readyState < 1) { pendingState = m; return; }
-    if (!unlocked && !m.paused && media === video) { pendingState = m; showTap(true); return; }
+    if (!unlocked && !m.paused && needsTap()) { pendingState = m; showTap(true); return; }
     const target = expectedPos(m);
     const needSeek = Math.abs(media.currentTime - target) > (media.coarseRate ? 0.6 : 0.25);
     if (!needSeek && m.paused === media.paused) { media.playbackRate = 1; return; } // already matching: don't mute our own events
@@ -497,6 +530,7 @@
         onRemoteEpisode(m); break;
       case 'yt': partner.file = { name: 'yt:' + m.id, title: m.title || '' }; partner.presence = 'idle'; if (!myName() || myName() === 'yt:' + m.id || clash !== 'flavours') openYouTube(m.id); renderHero(); break;
       case 'propose': onPropose(m); break;
+      case 'stream': partner.file = { name: m.name, title: m.title || '' }; partner.presence = 'idle'; if (myName() !== m.name && clash !== 'flavours') openStream(m.name); renderHero(); break;
       case 'answer': onAnswer(m); break;
       case 'final': onFinal(m); break;
       case 'gave-in': clash = null; closeModal(); toast('Your partner gave in and is joining you 💕'); renderHero(); break;
@@ -514,8 +548,9 @@
   function setFileMsg(text, warn) { $('fileInfo').textContent = text; $('fileInfo').className = 'small' + (warn ? ' warn' : ''); }
   // Phones block playback that wasn't started by a tap. Ask for one tap on the visible player.
   function showTap(show) {
-    $('tapOverlay').classList.toggle('show', show && mode2 !== 'music');
+    $('tapOverlay').classList.toggle('show', show && mode2 === 'video');
     $('tapOverlay2').classList.toggle('show', show && mode2 === 'music');
+    $('tapOverlay3').classList.toggle('show', show && mode2 === 'web');
   }
 
   const { parseTitle, label, sortEpisodes, isAudio } = window.CVPTitles;
@@ -690,26 +725,35 @@
 
   // ---------- tabs: Video / Music / YouTube ----------
   let mode2 = 'video';
+  // The player each tab drives. Local video and music share one <video>.
+  let webKind = null; // 'video' (webVideo) or 'vimeo' while the Links tab has something loaded
+  const mediaFor = m => m === 'yt' ? yt : m === 'web' ? (webKind === 'vimeo' ? vimeo : webVideo) : video;
   function setMode(m, announce = true) {
     if (m === mode2) return;
-    const leavingYt = mode2 === 'yt';
     mode2 = m;
-    for (const [id, k] of [['modeVideo', 'video'], ['modeMusic', 'music'], ['modeYt', 'yt']]) $(id).classList.toggle('on', m === k);
+    for (const [id, k] of [['modeVideo', 'video'], ['modeMusic', 'music'], ['modeYt', 'yt'], ['modeWeb', 'web']]) $(id).classList.toggle('on', m === k);
     $('videoPane').classList.toggle('hidden', m !== 'video');
     $('musicPane').classList.toggle('hidden', m !== 'music');
     $('ytPane').classList.toggle('hidden', m !== 'yt');
-    if (m === 'yt') { if (!video.paused) { suppress(); video.pause(); } media = yt; if (!browseLoaded) loadBrowse(); }
-    else if (leavingYt) { if (yt.player && !yt.paused) { suppress(); yt.pause(); } media = video; }
-    isLeader = true;
+    $('webPane').classList.toggle('hidden', m !== 'web');
+    switchMedia(mediaFor(m));
+    if (m === 'yt' && !browseLoaded) loadBrowse();
     if (announce && link) {
-      if (m === 'yt' && yt.id) link.send({ type: 'file', name: yt.dataset.name, title: yt.dataset.title || '', duration: yt.duration });
-      else if (leavingYt) link.send(currentFile ? { type: 'file', name: currentFile.name, size: currentFile.size, duration: video.duration || 0 } : { type: 'left-yt' });
+      const n = myName();
+      link.send(n ? { type: 'file', name: n, title: myTitle(), duration: media.duration || 0 } : { type: 'left-yt' });
     }
     renderHero(); renderMusic();
+  }
+  function switchMedia(next) {
+    if (next === media) return;
+    if (media.src && !media.paused) { suppress(); media.pause(); }
+    media = next;
+    isLeader = true;
   }
   $('modeVideo').onclick = () => setMode('video');
   $('modeMusic').onclick = () => setMode('music');
   $('modeYt').onclick = () => setMode('yt');
+  $('modeWeb').onclick = () => setMode('web');
 
   async function openYouTube(id) {
     setMode('yt', false);
@@ -734,6 +778,76 @@
     renderHero();
   });
   yt.addEventListener('error', e => { $('ytInfo').textContent = 'YouTube error ' + (e.detail && e.detail.code) + ': this video may not allow embedding on other sites.'; $('ytInfo').className = 'small warn'; });
+
+  // ---------- Links tab: videos from other sites ----------
+  let webCleanup = null;
+  function setWebMsg(t, warn) { $('webInfo').textContent = t; $('webInfo').className = 'small' + (warn ? ' warn' : ''); }
+  // name is 'web:<url>' or 'vimeo:<id>[/<hash>]'
+  async function openStream(name) {
+    setMode('web', false);
+    if (myName() === name) { renderHero(); if (link) link.send({ type: 'need-state' }); return; }
+    if (webCleanup) { webCleanup(); webCleanup = null; }
+    if (name.startsWith('vimeo:')) {
+      const [id, hash] = name.slice(6).split('/');
+      $('webInput').value = 'https://vimeo.com/' + id + (hash ? '/' + hash : '');
+      webKind = 'vimeo'; switchMedia(vimeo);
+      $('webVideo').classList.add('hidden'); $('vimeoBox').classList.remove('hidden'); showTap(false);
+      setWebMsg('Loading Vimeo…');
+      try { await vimeo.load({ id, hash }); } catch (e) { setWebMsg('Vimeo couldn\'t load this video: ' + (e.message || e), true); }
+    } else {
+      const url = name.slice(4);
+      const info = CVPWeb.classify(url) || { kind: 'file', url, title: url };
+      $('webInput').value = url;
+      webKind = 'video'; switchMedia(webVideo);
+      $('vimeoBox').classList.add('hidden'); $('webVideo').classList.remove('hidden');
+      webVideo.dataset.name = name;
+      webVideo.dataset.title = info.title || hostOf(url);
+      if (!unlocked) showTap(true);
+      setWebMsg('Loading…');
+      try { webCleanup = await CVPWeb.attachUrl(webVideo, info); }
+      catch (e) { setWebMsg(e.message, true); }
+    }
+    renderHero();
+  }
+  function pickLink() {
+    const raw = $('webInput').value.trim();
+    const info = CVPWeb.classify(raw);
+    if (!info) return setWebMsg('That doesn\'t look like a link.', true);
+    if (info.kind === 'youtube') { setMode('yt'); playLink(info.id, 'paste'); return; }
+    if (info.kind === 'drm') return setWebMsg(`${info.title} locks its videos (DRM), so they can't be played on other sites, including this one. Sorry!`, true);
+    const name = info.kind === 'vimeo' ? 'vimeo:' + info.id + (info.hash ? '/' + info.hash : '') : 'web:' + info.url;
+    openStream(name);
+    if (info.kind !== 'page') return announcePick(name, { how: 'paste' });
+    // Might not be a video at all: only invite the partner once it actually loads.
+    setWebMsg('Trying… this looks like a web page rather than a video file, so it may not play.');
+    webVideo.addEventListener('loadedmetadata', () => { if (myName() === name) announcePick(name, { how: 'paste' }); }, { once: true });
+  }
+  $('webGo').onclick = pickLink;
+  $('webInput').addEventListener('keydown', e => { if (e.key === 'Enter') pickLink(); });
+  $('webInput').addEventListener('paste', () => setTimeout(() => { if (CVPWeb.classify($('webInput').value)) pickLink(); }, 0));
+  const onStreamMeta = src => () => {
+    if (media !== src) return;
+    setWebMsg((src.dataset.title || 'Video') + (src.duration && isFinite(src.duration) ? ' · ' + fmt(src.duration) : ' · live'));
+    if (link) { link.send({ type: 'file', name: src.dataset.name, title: src.dataset.title || '', duration: isFinite(src.duration) ? src.duration : 0 }); link.send({ type: 'need-state' }); }
+    if (pendingState && (unlocked || src === vimeo)) { const p = pendingState; pendingState = null; applyState(p); }
+    renderHero();
+  };
+  webVideo.addEventListener('loadedmetadata', onStreamMeta(webVideo));
+  vimeo.addEventListener('loadedmetadata', onStreamMeta(vimeo));
+  const streamFail = why => {
+    showTap(false);
+    setWebMsg(why, true);
+    if (link && webVideo.dataset.name) link.send({ type: 'cant-play', name: webVideo.dataset.title || 'their link' });
+  };
+  webVideo.addEventListener('error', () => {
+    if (!webVideo.getAttribute('src') && !webCleanup) return;
+    const info = CVPWeb.classify(webVideo.dataset.name.slice(4));
+    streamFail(info && info.kind === 'page'
+      ? 'This is a web page, not a video. Open the video on that site, then copy the video\'s own address (usually ends in .mp4 or .m3u8).'
+      : 'This link didn\'t play. The site may block other sites from using its videos, or the link may have expired.');
+  });
+  webVideo.addEventListener('streamerror', e => streamFail('The stream didn\'t load (' + e.detail + '). The site may block other sites from using it, or the link expired.'));
+  vimeo.addEventListener('error', e => setWebMsg('Vimeo: ' + ((e.detail && e.detail.message) || 'this video can\'t be played here (it may be private or not allow embedding).'), true));
 
   // ---------- YouTube browse: trending + search ----------
   let browseKind = 'videos', browseLoaded = false, browseQuery = '';
@@ -783,8 +897,9 @@
   // States: null (in agreement), 'asking' (we proposed, waiting), 'asked' (partner proposed),
   // 'final' (partner said no, our call), 'flavours' (agreed to disagree).
   let clash = null;
-  const myName = () => (media === yt ? (yt.id ? yt.dataset.name : null) : currentFile && currentFile.name);
-  const myTitle = () => (media === yt ? yt.dataset.title || '' : '');
+  const myName = () => (media === video ? currentFile && currentFile.name : media.src ? media.dataset.name : null);
+  const myTitle = () => (media === video ? '' : media.dataset.title || '');
+  const isStreamName = n => /^(yt|web|vimeo):/.test(n || '');
   const nice = (name, title) => { const d = describe(name, title); return d.title + (d.t.kind === 'series' ? ' ' + d.t.key : ''); };
 
   // how: 'paste' (link typed/pasted), 'browse' (picked from Trending/Search), or a file pick.
@@ -792,11 +907,11 @@
   function announcePick(name, { title = '', how = '' } = {}) {
     if (!link) return;
     const theirs = partner.file && partner.file.name;
-    const isYt = name.startsWith('yt:');
-    if (theirs && sameVideo(theirs, name)) { clash = null; link.send(isYt ? { type: 'yt', id: name.slice(3) } : { type: 'episode', name }); renderHero(); return; }
-    if (isYt || theirs) {
+    const isYt = name.startsWith('yt:'), isStream = isStreamName(name);
+    if (theirs && sameVideo(theirs, name)) { clash = null; link.send(isYt ? { type: 'yt', id: name.slice(3) } : isStream ? { type: 'stream', name } : { type: 'episode', name }); renderHero(); return; }
+    if (isStream || theirs) {
       // YouTube picks always invite the partner ("party together?"); file picks ask only when they're on something else.
-      clash = 'asking'; inviteKind = isYt && !theirs ? 'party' : 'switch';
+      clash = 'asking'; inviteKind = isStream && !theirs ? 'party' : 'switch';
       const send = t => link && link.send({ type: 'propose', name, title: t || '', how });
       if (isYt && !title && yt.id === name.slice(3) && yt.dataset.title) title = yt.dataset.title;
       if (isYt && !title) {
@@ -805,7 +920,12 @@
         const once = () => { if (sent) return; sent = true; send(yt.id === name.slice(3) ? yt.dataset.title : ''); };
         yt.addEventListener('loadedmetadata', once, { once: true });
         setTimeout(once, 3000);
-      } else send(title);
+      } else if (isStream && !isYt && !title && !(media.dataset.name === name && media.dataset.title)) {
+        let sent = false;
+        const once = () => { if (sent) return; sent = true; send(media.dataset.name === name ? media.dataset.title : ''); };
+        media.addEventListener('loadedmetadata', once, { once: true });
+        setTimeout(once, 3000);
+      } else send(title || (media.dataset.name === name ? media.dataset.title : ''));
       toast(inviteKind === 'party' ? 'Invited your partner to watch together 🎉' : `Asked your partner to switch to ${nice(name, title)}…`);
     } else {
       clash = null;
@@ -818,6 +938,7 @@
   function followPartner(name, title) {
     clash = null; closeModal();
     if (name.startsWith('yt:')) { openYouTube(name.slice(3)); return; }
+    if (isStreamName(name)) { openStream(name); return; }
     const i = findEpisode(parseTitle(name), name);
     if (i >= 0) { playEpisode(i, { announce: false }); return; }
     setMode(isAudio(name) ? 'music' : 'video', false);
@@ -826,11 +947,12 @@
   }
 
   const ytHead = how => how === 'browse' ? 'Your partner found something on YouTube' : how === 'share' ? 'Your partner shared a video' : 'Your partner pasted a link';
+  const hostOf = u => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch (_) { return 'a website'; } };
   function onPropose(m) {
     partner.file = { name: m.name, title: m.title || '' };
     partner.presence = 'idle';
     const mine = myName();
-    const isYt = m.name.startsWith('yt:');
+    const isYt = isStreamName(m.name); // any link (YouTube, Vimeo, other sites) gets the party invite
     const d = describe(m.name, m.title);
     const verbBtn = d.verb === 'listen to' ? 'Listen to theirs' : 'Watch theirs';
     if (mine && sameVideo(mine, m.name)) { link.send({ type: 'answer', accept: true }); followPartner(m.name, m.title); return; }
@@ -838,7 +960,7 @@
     clash = 'asked';
     if (!mine) {
       const head = ytHead(m.how);
-      modal('🎉', head, `Want to party together? They want to watch ${d.title === 'a YouTube video' ? 'a YouTube video' : '“' + d.title + '”'}.`, [
+      modal('🎉', head, `Want to party together? They want to watch ${/^a (YouTube|Vimeo) video$|^a video link$/.test(d.title) ? d.title : '“' + d.title + '”'}${d.what.startsWith('from') ? ' (' + d.sub + ')' : ''}.`, [
         { text: 'Let’s party! 🎉', primary: true, on: () => { link.send({ type: 'answer', accept: true }); followPartner(m.name, m.title); } },
         { text: 'Not now', on: () => { clash = null; link.send({ type: 'answer', accept: false, name: null }); renderHero(); } },
       ]);
@@ -922,6 +1044,12 @@
   }
   function describe(name, ytTitle) {
     if (name.startsWith('yt:')) return { t: { kind: 'yt' }, title: ytTitle || 'a YouTube video', sub: 'YouTube', verb: 'watch', verbing: 'watching', what: 'on YouTube' };
+    if (name.startsWith('vimeo:')) return { t: { kind: 'vimeo' }, title: ytTitle || 'a Vimeo video', sub: 'Vimeo', verb: 'watch', verbing: 'watching', what: 'on Vimeo' };
+    if (name.startsWith('web:')) {
+      const url = name.slice(4);
+      const audio = /\.(mp3|m4a|aac|ogg|oga|opus|wav|flac)(\?|$)/i.test(url);
+      return { t: { kind: 'web' }, title: ytTitle || 'a video link', sub: hostOf(url), verb: audio ? 'listen to' : 'watch', verbing: audio ? 'listening to' : 'watching', what: 'from a link' };
+    }
     const t = parseTitle(name);
     if (t.kind === 'music') return { t, title: t.title, sub: t.artist || 'Song', verb: 'listen to', verbing: 'listening to', what: '' };
     if (t.kind === 'series') return { t, title: t.show, sub: `Season ${t.season} · Episode ${t.episode}` + (t.episodeTitle ? ` · ${t.episodeTitle}` : ''), verb: 'watch', verbing: 'watching', what: 'the series' };
@@ -929,7 +1057,7 @@
   }
   const phrase = (who, d) => `${who} ${d.verbing} ${d.what}`.trim();
   function sameVideo(a, b) {
-    if (a.startsWith('yt:') || b.startsWith('yt:')) return a === b;
+    if (isStreamName(a) || isStreamName(b)) return a === b;
     const ta = parseTitle(a), tb = parseTitle(b);
     if (ta.kind === 'series' && tb.kind === 'series') return ta.season === tb.season && ta.episode === tb.episode;
     return a === b || label(ta).toLowerCase() === label(tb).toLowerCase();
@@ -957,9 +1085,9 @@
       return setHero('Connected', 'Pick something to play', 'A movie, a series, music, or a YouTube video.');
     }
     const d = describe(partner.file.name, partner.file.title);
-    if (!mine) return setHero(phrase('Your partner is', d), d.title, d.sub + (partner.file.name.startsWith('yt:') ? '' : ' · Find the same file on this device to join in.'));
+    if (!mine) return setHero(phrase('Your partner is', d), d.title, d.sub + (isStreamName(partner.file.name) ? '' : ' · Find the same file on this device to join in.'));
     if (!sameVideo(mine, partner.file.name)) {
-      return setHero(phrase('Your partner is', d), d.title, `${d.sub} · But you picked ${nice(mine, mineTitle)}. Pick the same one.`, { warn: true, button: partner.file.name.startsWith('yt:') ? 'Watch theirs' : '' });
+      return setHero(phrase('Your partner is', d), d.title, `${d.sub} · But you picked ${nice(mine, mineTitle)}. Pick the same one.`, { warn: true, button: isStreamName(partner.file.name) ? 'Watch theirs' : '' });
     }
     let sub = d.sub;
     if (media === video && partner.file.duration && video.duration && Math.abs(video.duration - partner.file.duration) > 2) { sub += ' · Lengths differ a bit, so this may be a different version.'; }
@@ -1019,7 +1147,8 @@
   document.querySelectorAll('.tapBtn').forEach(btn => btn.addEventListener('click', async () => {
     showTap(false);
     suppress(800);
-    try { await video.play(); if (!pendingState || pendingState.paused) video.pause(); unlocked = true; } catch (e) { log('unlock failed', e.name); }
+    const el = media === webVideo ? webVideo : video;
+    try { await el.play(); if (!pendingState || pendingState.paused) el.pause(); unlocked = true; } catch (e) { log('unlock failed', e.name); }
     if (pendingState) { const p = pendingState; pendingState = null; applyState(p); }
     else if (link) link.send({ type: 'need-state' });
   }));
@@ -1099,7 +1228,7 @@
     try { hosting = hosting || sessionStorage.getItem('cvp-host') === code; } catch (_) {}
     if (hosting) hostRoom(code); else joinRoom(code);
   }
-  window.__yt = yt;
+  window.__yt = yt; window.__vm = vimeo;
   window.__cvp = { video, get offset() { return offset; }, get leader() { return isLeader; } };
 })();
 </script>

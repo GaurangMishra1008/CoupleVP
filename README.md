@@ -29,6 +29,14 @@ The main screen has three tabs:
 - Picking, pasting or sharing a YouTube video sends your partner **"Want to party together? 🎉"** (Let's party / Not now). If they're already on something, it becomes the watch-theirs-or-keep-mine choice below.
 - The YouTube player itself is YouTube's own, so if you're signed in to YouTube in the same browser (works best in Chrome; Safari blocks it), it plays as your account (e.g. Premium = no ads).
 
+## Links from other sites
+
+The 🌐 Links tab plays a pasted link on both devices, in sync, like YouTube. Your partner gets a "want to party together?" popup.
+
+- Works: direct video or audio files (the address ends in .mp4, .webm, .mov, .mp3 and so on), stream links ending in .m3u8 (played with hls.js where the browser can't do it natively), and Vimeo.
+- Doesn't work: Netflix, Prime Video, Disney+/Hotstar, JioCinema, SonyLIV and other paid services. They lock their videos with DRM so no other site can play them; the app says so instead of trying.
+- Ordinary web pages with a video on them don't work either. You need the video's own address, not the page's. Some sites also block other sites from loading their videos or streams; the app shows a message when that happens.
+
 ## Picking different things
 If one of you picks something while the other is on something else, the other gets a popup: **watch theirs or keep mine?**
 - Watch theirs: you both switch (YouTube switches automatically; for files, the matching episode/song is picked if you have it, otherwise you're asked to pick it).
