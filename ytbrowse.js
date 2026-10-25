@@ -1,6 +1,6 @@
 // Finds YouTube videos to play: trending videos, trending music, and search.
 // Uses the official YouTube Data API when a key is set (config.js or the key box in the app).
-// Without a key it tries a few public Piped mirrors, which work most of the time but not always.
+// Without a key (the normal case) it asks free public mirrors (Piped and Invidious), which work most of the time but not always.
 (function () {
   const PIPED = ['https://pipedapi.kavin.rocks', 'https://pipedapi.adminforge.de', 'https://api.piped.private.coffee'];
 
@@ -64,11 +64,35 @@
     throw lastErr || new Error('No results');
   }
 
+  const INVIDIOUS = ['https://inv.nadeko.net', 'https://invidious.nerdvpn.de', 'https://yewtu.be', 'https://invidious.f5.si'];
+  async function viaInvidious(kind, q) {
+    const music = kind === 'music';
+    let lastErr = null;
+    for (const inst of INVIDIOUS) {
+      try {
+        const url = q
+          ? `${inst}/api/v1/search?type=video&q=${encodeURIComponent(q + (music ? ' song' : ''))}`
+          : `${inst}/api/v1/trending?region=${region()}${music ? '&type=music' : ''}`;
+        const items = await getJson(url);
+        const out = (items || []).filter(it => it.videoId).map(it => {
+          const th = (it.videoThumbnails || []).find(t => t.quality === 'medium') || (it.videoThumbnails || [])[0];
+          return { id: it.videoId, title: it.title, channel: it.author || '', thumb: th && th.url && th.url.startsWith('http') ? th.url : '', secs: it.lengthSeconds || 0 };
+        });
+        if (out.length) return out;
+      } catch (e) { lastErr = e; }
+    }
+    throw lastErr || new Error('No results');
+  }
+
   // kind: 'videos' | 'music'; q: optional search text
   async function list(kind, q) {
     const key = apiKey();
     if (key) return { items: await viaApi(kind, q, key), source: 'api' };
-    try { return { items: await viaPiped(kind, q), source: 'piped' }; }
+    // No key: race the free mirrors and take whichever answers first.
+    try { return await Promise.any([
+      viaPiped(kind, q).then(items => ({ items, source: 'piped' })),
+      viaInvidious(kind, q).then(items => ({ items, source: 'invidious' })),
+    ]); }
     catch (e) { const err = new Error('needs-key'); err.cause = e; throw err; }
   }
 

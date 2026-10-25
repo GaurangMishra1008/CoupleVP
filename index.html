@@ -3,6 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0f0f14">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
 <title>Couple Player</title>
 <style>
   :root { --bg:#0f0f14; --card:#1a1a22; --fg:#f2f2f5; --muted:#9a9aa8; --accent:#ff5c8a; --ok:#3ecf8e; --warn:#f5b84b; }
@@ -190,12 +194,17 @@
 
   <div id="ytPane" class="hidden">
     <section class="card">
-      <div class="small" style="margin-bottom:8px">Paste a YouTube link. Either of you can pick; if you pick different ones, you'll decide together.</div>
+      <div class="small" style="margin-bottom:8px">Find a video in your own YouTube (you're signed in there), copy its link, and come back. Either of you can pick.</div>
+      <div class="row" style="margin-bottom:10px">
+        <a class="btn" id="openYt" href="https://www.youtube.com/" target="_blank" rel="noopener" style="text-decoration:none">▶ Open YouTube</a>
+        <button id="pasteYt" class="ghost">📋 Paste link</button>
+      </div>
       <div class="row">
         <input type="text" id="ytInput" placeholder="https://youtu.be/…" autocomplete="off" style="text-transform:none;letter-spacing:0">
         <button id="ytGo">Watch</button>
       </div>
       <div class="small" id="ytInfo" style="margin-top:8px"></div>
+      <div class="small" id="shareHint" style="margin-top:8px;color:var(--muted)"></div>
     </section>
     <section class="stage yt-stage" id="ytStage"><div id="ytPlayer"></div></section>
 
@@ -210,14 +219,7 @@
       </div>
       <div class="small" id="browseInfo" style="margin:8px 0"></div>
       <div class="ytgrid" id="ytGrid"></div>
-      <div id="keyBox" class="hidden" style="margin-top:10px">
-        <div class="small" style="margin-bottom:6px">Trending and search need a free YouTube API key. Paste it here (saved on this device only):</div>
-        <div class="row">
-          <input type="text" id="keyInput" placeholder="AIza…" autocomplete="off" style="text-transform:none;letter-spacing:0">
-          <button id="keySave" class="ghost">Save</button>
-        </div>
-      </div>
-    </section>
+</section>
   </div>
   <p class="small" id="syncInfo"></p>
 
@@ -263,6 +265,8 @@
     startClockSync();
     sendFileInfo();
     if (playlist.length && epIndex >= 0) link.send({ type: 'episode', name: playlist[epIndex].file.name });
+    if (media === yt && yt.id && !pendingShare) link.send({ type: 'file', name: yt.dataset.name, title: yt.dataset.title || '', duration: yt.duration });
+    if (pendingShare) { const id = pendingShare; pendingShare = null; setTimeout(() => announcePick('yt:' + id, { how: 'share' }), 800); }
     if (isLeader) sendState('hello');
     renderHero();
   }
@@ -279,7 +283,9 @@
     setTimeout(() => { if (!opened && !link && conn.open === false && peer && !peer.destroyed && conn.peerConnection) setStatus('Found your partner but could not connect directly. Try both on the same Wi-Fi.', 'wait'); }, 20000);
   }
 
+  function rememberRoom(code, host) { try { localStorage.setItem('cvp-last-room', JSON.stringify({ code, host, at: Date.now() })); } catch (_) {} }
   function hostRoom(code, attempt = 0) {
+    rememberRoom(code, true);
     showCode(code);
     try { sessionStorage.setItem('cvp-host', code); } catch (_) {}
     if (params.has('test')) return testTransport(code, true);
@@ -303,6 +309,7 @@
   }
 
   function joinRoom(code) {
+    rememberRoom(code, false);
     isLeader = false;
     showCode(code);
     if (params.has('test')) return testTransport(code, false);
@@ -734,11 +741,10 @@
     browseLoaded = true;
     const grid = $('ytGrid');
     $('browseInfo').textContent = browseQuery ? `Searching “${browseQuery}”…` : 'Loading what\'s trending…';
-    $('keyBox').classList.add('hidden');
     grid.innerHTML = '';
     try {
       const { items, source } = await CVPBrowse.list(browseKind, browseQuery);
-      $('browseInfo').textContent = (browseQuery ? `Results for “${browseQuery}”` : (browseKind === 'music' ? 'Trending music' : 'Trending now') + ' · ' + CVPBrowse.region()) + (source === 'piped' ? ' · via a public mirror' : '');
+      $('browseInfo').textContent = (browseQuery ? `Results for “${browseQuery}”` : (browseKind === 'music' ? 'Trending music' : 'Trending now') + ' · ' + CVPBrowse.region()) + (source !== 'api' ? ' · via a free mirror' : '');
       for (const it of items) {
         const b = document.createElement('button');
         b.className = 'ytcard';
@@ -754,9 +760,7 @@
       if (!items.length) $('browseInfo').textContent = 'Nothing found.';
     } catch (e) {
       log('browse failed', e.message, e.cause ? e.cause.message : '');
-      const keyProblem = e.message === 'needs-key' || /key|quota|forbidden|403|400/i.test(e.message);
-      $('browseInfo').textContent = e.message === 'needs-key' ? 'Couldn\'t load trending right now.' : 'YouTube said: ' + e.message;
-      if (keyProblem) $('keyBox').classList.remove('hidden');
+      $('browseInfo').textContent = 'Trending isn\'t available right now. Tap ▶ Open YouTube above, find a video, copy its link, and come back.';
     }
   }
   function decodeHtml(t) { const el = document.createElement('textarea'); el.innerHTML = t; return el.value; }
@@ -774,7 +778,6 @@
   });
   $('ytSearchGo').onclick = () => { browseQuery = $('ytSearch').value.trim(); loadBrowse(); };
   $('ytSearch').addEventListener('keydown', e => { if (e.key === 'Enter') $('ytSearchGo').click(); });
-  $('keySave').onclick = () => { CVPBrowse.setApiKey($('keyInput').value); $('keyInput').value = ''; loadBrowse(); };
 
   // ---------- picking different things: decide together ----------
   // States: null (in agreement), 'asking' (we proposed, waiting), 'asked' (partner proposed),
@@ -795,6 +798,7 @@
       // YouTube picks always invite the partner ("party together?"); file picks ask only when they're on something else.
       clash = 'asking'; inviteKind = isYt && !theirs ? 'party' : 'switch';
       const send = t => link && link.send({ type: 'propose', name, title: t || '', how });
+      if (isYt && !title && yt.id === name.slice(3) && yt.dataset.title) title = yt.dataset.title;
       if (isYt && !title) {
         // Wait a moment for the video's title so the popup on their side can name it.
         let sent = false;
@@ -821,6 +825,7 @@
     renderHero();
   }
 
+  const ytHead = how => how === 'browse' ? 'Your partner found something on YouTube' : how === 'share' ? 'Your partner shared a video' : 'Your partner pasted a link';
   function onPropose(m) {
     partner.file = { name: m.name, title: m.title || '' };
     partner.presence = 'idle';
@@ -832,13 +837,13 @@
     if (!mine && !isYt) { link.send({ type: 'answer', accept: true }); followPartner(m.name, m.title); return; } // nothing to argue about
     clash = 'asked';
     if (!mine) {
-      const head = m.how === 'browse' ? 'Your partner found something on YouTube' : 'Your partner pasted a link';
+      const head = ytHead(m.how);
       modal('🎉', head, `Want to party together? They want to watch ${d.title === 'a YouTube video' ? 'a YouTube video' : '“' + d.title + '”'}.`, [
         { text: 'Let’s party! 🎉', primary: true, on: () => { link.send({ type: 'answer', accept: true }); followPartner(m.name, m.title); } },
         { text: 'Not now', on: () => { clash = null; link.send({ type: 'answer', accept: false, name: null }); renderHero(); } },
       ]);
     } else {
-      const head = isYt ? (m.how === 'browse' ? 'Your partner found something on YouTube' : 'Your partner pasted a link') : 'Your partner picked something else';
+      const head = isYt ? ytHead(m.how) : 'Your partner picked something else';
       modal(isYt ? '🎉' : '🤔', head, `${isYt ? 'Want to party together? ' : ''}They want to ${d.verb} ${d.title}${d.t.kind === 'series' ? ' (' + d.t.key + ')' : ''}. You're on ${nice(mine, myTitle())}.`, [
         { text: verbBtn, primary: true, on: () => { link.send({ type: 'answer', accept: true }); followPartner(m.name, m.title); } },
         { text: 'Keep mine', on: () => { clash = 'asking'; inviteKind = 'switch'; link.send({ type: 'answer', accept: false, name: mine, title: myTitle() }); toast('Waiting for your partner to decide…'); closeModal(); renderHero(); } },
@@ -1018,6 +1023,66 @@
     if (pendingState) { const p = pendingState; pendingState = null; applyState(p); }
     else if (link) link.send({ type: 'need-state' });
   }));
+
+  // ---------- YouTube without any key: use your own signed-in YouTube, then bring the link back ----------
+  let lookingOnYt = false, pendingShare = null;
+  const firstUrl = t => (String(t || '').match(/https?:\/\/\S+/) || [String(t || '').trim()])[0];
+  const linkId = t => CVPYouTube.parseId(firstUrl(t));
+  function playLink(id, how = 'paste') {
+    $('ytInput').value = 'https://youtu.be/' + id;
+    setMode('yt');
+    openYouTube(id);
+    announcePick('yt:' + id, { how });
+  }
+  async function checkClipboard(fromTap) {
+    let text = '';
+    try { text = await navigator.clipboard.readText(); }
+    catch (_) {
+      if (fromTap) { $('ytInput').focus(); toast('Couldn\'t read your clipboard. Long-press the link box and choose Paste.'); }
+      else toast('Copied a YouTube link? Tap 📋 Paste link.');
+      return;
+    }
+    const id = linkId(text);
+    if (!id) { if (fromTap) toast('No YouTube link copied yet. In YouTube tap Share → Copy link.'); return; }
+    if (id === yt.id) { if (fromTap) toast('That video is already playing.'); return; }
+    lookingOnYt = false;
+    if (fromTap) playLink(id);
+    else modal('📋', 'Found the YouTube link you copied', 'Play it together?', [
+      { text: 'Play it 🎉', primary: true, on: () => playLink(id) },
+      { text: 'Ignore', on: () => {} },
+    ]);
+  }
+  $('openYt').addEventListener('click', () => { lookingOnYt = true; });
+  $('pasteYt').onclick = () => checkClipboard(true);
+  const onBack = () => { if (lookingOnYt && document.visibilityState === 'visible' && mode2 === 'yt') { lookingOnYt = false; setTimeout(() => checkClipboard(false), 300); } };
+  document.addEventListener('visibilitychange', onBack);
+  window.addEventListener('focus', onBack);
+  // Paste straight into the link box: play right away.
+  $('ytInput').addEventListener('paste', () => setTimeout(() => { if (CVPYouTube.parseId(firstUrl($('ytInput').value))) $('ytGo').click(); }, 0));
+
+  const isAndroid = /Android/i.test(navigator.userAgent), isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  $('shareHint').textContent = isAndroid
+    ? 'Tip: install this app (browser ⋮ menu → Install app). Then in the YouTube app tap Share → Couple Player, and it plays here for both of you.'
+    : isIOS ? 'Tip: in the YouTube app tap Share → Copy link, come back here, and tap 📋 Paste link.'
+    : 'Tip: copy a link from YouTube, come back, and it will offer to play it.';
+
+  // Android share sheet ("Share → Couple Player") opens this page with the shared link.
+  {
+    const shared = linkId(params.get('url')) || linkId(params.get('text')) || linkId(params.get('title'));
+    if (shared) {
+      pendingShare = shared;
+      const u = new URL(location.href); ['url', 'text', 'title'].forEach(k => u.searchParams.delete(k));
+      if (!u.searchParams.get('room')) {
+        let last = null; try { last = JSON.parse(localStorage.getItem('cvp-last-room') || 'null'); } catch (_) {}
+        if (last && Date.now() - last.at < 12 * 3600e3) { u.searchParams.set('room', last.code); if (last.host) { try { sessionStorage.setItem('cvp-host', last.code); } catch (_) {} } }
+      }
+      history.replaceState(null, '', u);
+      params.delete('url'); params.delete('text'); params.delete('title');
+      if (u.searchParams.get('room')) params.set('room', u.searchParams.get('room'));
+      setTimeout(() => { setMode('yt'); openYouTube(shared); }, 0);
+    }
+  }
+  if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
 
   // ---------- room UI ----------
   $('createBtn').onclick = () => hostRoom(makeCode());

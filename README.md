@@ -22,10 +22,12 @@ The main screen has three tabs:
 - **🎵 Music**: a song or an album folder in a fun player: animated colours, a spinning record, dancing bars, its own play/prev/next and progress bar, and a **💗 Send a heart** button that floats hearts on both screens. Albums play through in order together.
 - **▶ YouTube**: paste a link; it syncs through the YouTube player (`yt.js`). YouTube only allows a few fixed speeds, so drift is corrected by small jumps.
 
-## YouTube browse and party invites
-- The YouTube tab has **🔥 Trending videos**, **🎵 Trending music** and **Search**. Tap a video to play it in the main player for both of you (`ytbrowse.js`).
-- With a YouTube Data API key (set in `config.js`, or pasted into the key box in the app) it uses the official API. Restrict the key to `https://gaurangmishra1008.github.io/*` and the YouTube Data API. Without a key it tries public Piped mirrors, which work most of the time but can be down.
-- Picking or pasting a YouTube link sends your partner a popup: **"Your partner pasted a link. Want to party together? 🎉"** (Let's party / Not now). If they're already on something, it becomes the watch-theirs-or-keep-mine choice below.
+## YouTube without any API key
+- **▶ Open YouTube** opens your own YouTube (app or site), where you're already signed in with your recommendations and subscriptions. Copy a video's link, come back, and the app offers to play it together. **📋 Paste link** does the same in one tap, and pasting into the link box plays right away.
+- **Android:** install the app (browser ⋮ menu → Install app). It then shows up in the YouTube app's **Share** menu as *Couple Player*; sharing a video opens it here, reconnects to your last room and invites your partner (`manifest.webmanifest` share target + `sw.js`).
+- **Trending / Search** in the YouTube tab use free public mirrors (Piped and Invidious), no key needed. They're occasionally down; then use Open YouTube. (A YouTube Data API key in `config.js` is still supported but optional.)
+- Picking, pasting or sharing a YouTube video sends your partner **"Want to party together? 🎉"** (Let's party / Not now). If they're already on something, it becomes the watch-theirs-or-keep-mine choice below.
+- The YouTube player itself is YouTube's own, so if you're signed in to YouTube in the same browser (works best in Chrome; Safari blocks it), it plays as your account (e.g. Premium = no ads).
 
 ## Picking different things
 If one of you picks something while the other is on something else, the other gets a popup: **watch theirs or keep mine?**
