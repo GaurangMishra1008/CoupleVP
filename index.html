@@ -11,7 +11,7 @@
 <style>
   :root { --bg:#0f0f14; --card:#1a1a22; --fg:#f2f2f5; --muted:#9a9aa8; --accent:#ff5c8a; --ok:#3ecf8e; --warn:#f5b84b; }
   * { box-sizing:border-box; }
-  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  body { margin:0; padding-bottom:80px; background:var(--bg); color:var(--fg); font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
   main { max-width:860px; margin:0 auto; padding:16px; }
   h1 { font-size:1.4rem; margin:4px 0 2px; }
   .sub { color:var(--muted); margin:0 0 16px; font-size:.92rem; }
@@ -111,6 +111,31 @@
   .tapBtn2 { font-size:1.1rem; padding:14px 22px; }
   #vimeoBox { aspect-ratio:16/9; background:#000; border-radius:12px; overflow:hidden; }
   #vimeoBox iframe { width:100%; height:100%; border:0; display:block; }
+  /* chat */
+  #chatRoot { position:fixed; right:16px; bottom:16px; z-index:60; display:flex; flex-direction:column; align-items:flex-end; gap:8px; pointer-events:none; }
+  #chatRoot > * { pointer-events:auto; }
+  #chatFab { width:56px; height:56px; border-radius:50%; font-size:1.5rem; padding:0; box-shadow:0 6px 20px rgba(0,0,0,.45); position:relative; }
+  #chatBadge { position:absolute; top:-4px; right:-4px; min-width:20px; height:20px; border-radius:10px; background:#fff; color:var(--accent); font:700 .75rem/20px system-ui; text-align:center; padding:0 5px; }
+  #chatPeek { max-width:260px; background:var(--card); border:1px solid #3a2340; border-radius:14px 14px 4px 14px; padding:8px 12px; font-size:.9rem; box-shadow:0 6px 20px rgba(0,0,0,.45); cursor:pointer; animation:pop .2s ease-out; word-wrap:break-word; }
+  #chatPanel { width:min(360px, calc(100vw - 32px)); height:min(460px, 70vh); background:var(--card); border:1px solid #3a2340; border-radius:16px; display:flex; flex-direction:column; box-shadow:0 10px 30px rgba(0,0,0,.5); overflow:hidden; }
+  #chatHead { display:flex; align-items:center; gap:8px; padding:10px 12px; border-bottom:1px solid #2c2c38; font-weight:700; }
+  #chatHead .small { font-weight:400; }
+  #chatClose { margin-left:auto; background:transparent; color:var(--muted); padding:4px 8px; font-size:1.1rem; }
+  #chatMsgs { flex:1; overflow-y:auto; padding:10px; display:flex; flex-direction:column; gap:6px; }
+  .cm { max-width:80%; padding:7px 11px; border-radius:14px; font-size:.95rem; line-height:1.35; word-wrap:break-word; white-space:pre-wrap; }
+  .cm.me { align-self:flex-end; background:var(--accent); color:#fff; border-bottom-right-radius:4px; }
+  .cm.them { align-self:flex-start; background:#2a2a36; border-bottom-left-radius:4px; }
+  .cm.big { font-size:2rem; background:transparent; padding:0 4px; }
+  .cm .t { display:block; font-size:.68rem; opacity:.65; margin-top:2px; }
+  .cm-note { align-self:center; font-size:.75rem; color:var(--muted); }
+  #chatTyping { font-size:.78rem; color:var(--muted); padding:0 12px 4px; min-height:1em; }
+  #chatEmojis { display:flex; gap:4px; padding:0 8px 6px; overflow-x:auto; }
+  #chatEmojis button { background:transparent; font-size:1.25rem; padding:2px 6px; }
+  #chatForm { display:flex; gap:6px; padding:8px; border-top:1px solid #2c2c38; }
+  #chatInput { flex:1; min-width:0; text-transform:none; letter-spacing:0; }
+  @media (max-width:600px) { #chatRoot { right:10px; bottom:10px; } #chatPanel { height:min(380px, 46vh); } #chatFab { width:50px; height:50px; } }
+  .fs-wrap:fullscreen { background:#000; display:flex; align-items:center; justify-content:center; }
+  .fs-wrap:fullscreen video { max-height:100vh; height:100%; width:100%; border-radius:0; }
   #log { font:12px ui-monospace,Menlo,monospace; color:var(--muted); max-height:120px; overflow:auto; white-space:pre-wrap; }
 </style>
 </head>
@@ -238,7 +263,7 @@
       </details>
     </section>
     <section class="hidden" id="liveStage">
-      <div class="stage">
+      <div class="stage fs-wrap" id="liveWrap">
         <video id="liveVideo" autoplay playsinline></video>
         <div class="overlay" id="liveTap"><button id="liveTapBtn" class="tapBtn2">🔊 Tap to watch with sound</button></div>
       </div>
@@ -294,6 +319,17 @@
   <details class="card"><summary class="small">Debug log</summary><div id="log"></div></details>
 </main>
 
+<div id="chatRoot" class="hidden">
+  <div id="chatPanel" class="hidden" role="dialog" aria-label="Chat">
+    <div id="chatHead">💬 Chat <span class="small">· only on your two devices, not saved</span><button id="chatClose" aria-label="Close chat">✕</button></div>
+    <div id="chatMsgs"></div>
+    <div id="chatTyping"></div>
+    <div id="chatEmojis"></div>
+    <form id="chatForm"><input type="text" id="chatInput" placeholder="Say something…" autocomplete="off" maxlength="500" enterkeyhint="send"><button type="submit">Send</button></form>
+  </div>
+  <div id="chatPeek" class="hidden"></div>
+  <button id="chatFab" aria-label="Chat">💬<span id="chatBadge" class="hidden"></span></button>
+</div>
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script src="config.js"></script>
 <script src="titles.js"></script>
@@ -322,6 +358,7 @@
     link = { send: o => { try { sendFn(JSON.stringify(o)); } catch (e) { log('send failed', e); } } };
     setStatus('Connected', 'ok');
     $('roomCard').classList.add('hidden');
+    showChat(true);
     startClockSync();
     sendFileInfo();
     if (playlist.length && epIndex >= 0) link.send({ type: 'episode', name: playlist[epIndex].file.name });
@@ -330,7 +367,7 @@
     if (isLeader) sendState('hello');
     renderHero();
   }
-  function onLinkClose() { share.stop(false); link = null; partner = { presence: 'none', file: null, cantPlay: null, missing: null }; setStatus('Disconnected. Refresh both pages to reconnect.', ''); stopClockSync(); renderHero(); setHero('Disconnected', 'Your partner left', 'Refresh both pages to reconnect.', { warn: true }); }
+  function onLinkClose() { share.stop(false); if (link) chatNote('Your partner left');  link = null; partner = { presence: 'none', file: null, cantPlay: null, missing: null }; setStatus('Disconnected. Refresh both pages to reconnect.', ''); stopClockSync(); renderHero(); setHero('Disconnected', 'Your partner left', 'Refresh both pages to reconnect.', { warn: true }); }
   function onRaw(data) { try { handle(JSON.parse(data)); } catch (e) { log('bad msg', e); } }
 
   function wirePeerConn(conn) {
@@ -568,6 +605,8 @@
       case 'final': onFinal(m); break;
       case 'gave-in': clash = null; closeModal(); toast('Your partner gave in and is joining you 💕'); renderHero(); break;
       case 'heart': floatHearts(); break;
+      case 'chat': chatReceive(m); break;
+      case 'typing': chatTyping(m.on); break;
       case 'need-state': sendState('sync'); break;
       case 'cant-play': partner.cantPlay = m.name; renderHero(); break;
     }
@@ -882,6 +921,76 @@
   webVideo.addEventListener('streamerror', e => streamFail('The stream didn\'t load (' + e.detail + '). The site may block other sites from using it, or the link expired.'));
   vimeo.addEventListener('error', e => setWebMsg('Vimeo: ' + ((e.detail && e.detail.message) || 'this video can\'t be played here (it may be private or not allow embedding).'), true));
 
+  // ---------- Chat: messages go over the same device-to-device link, kept only in this page ----------
+  const chat = { open: false, unread: 0, typingTimer: null, sentTyping: 0, peekTimer: null };
+  const EMOJIS = ['❤️', '😂', '😮', '😢', '🔥', '👍', '🍿', '😘'];
+  $('chatEmojis').innerHTML = EMOJIS.map(e => `<button type="button">${e}</button>`).join('');
+  const clock = t => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const onlyEmoji = t => /^(\p{Extended_Pictographic}|\p{Emoji_Component}|\u200d|\ufe0f|\s){1,8}$/u.test(t) && !/^[\d#*\s]+$/.test(t);
+  function chatAdd(text, who, at) {
+    const el = document.createElement('div');
+    el.className = 'cm ' + who + (onlyEmoji(text) ? ' big' : '');
+    el.textContent = text;
+    const t = document.createElement('span'); t.className = 't'; t.textContent = clock(at); el.appendChild(t);
+    const box = $('chatMsgs');
+    const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+    box.appendChild(el);
+    if (atBottom || who === 'me') box.scrollTop = box.scrollHeight;
+  }
+  function chatNote(text) { const el = document.createElement('div'); el.className = 'cm-note'; el.textContent = text; $('chatMsgs').appendChild(el); $('chatMsgs').scrollTop = 1e9; }
+  function chatSend(text) {
+    text = String(text || '').trim().slice(0, 500);
+    if (!text || !link) return;
+    const at = Date.now();
+    link.send({ type: 'chat', text, at });
+    chatAdd(text, 'me', at);
+    if (chat.sentTyping) { link.send({ type: 'typing', on: false }); chat.sentTyping = 0; }
+  }
+  function chatReceive(m) {
+    chatTyping(false);
+    const text = String(m.text || '').slice(0, 500);
+    if (!text) return;
+    chatAdd(text, 'them', Date.now());
+    if (!chat.open) {
+      chat.unread++; renderChatBadge();
+      const peek = $('chatPeek'); peek.textContent = text; peek.classList.remove('hidden');
+      clearTimeout(chat.peekTimer); chat.peekTimer = setTimeout(() => peek.classList.add('hidden'), 5000);
+    }
+    if (onlyEmoji(text) && /❤|😘|😍|🥰/.test(text)) floatHearts();
+  }
+  function chatTyping(on) {
+    $('chatTyping').textContent = on ? 'Your partner is typing…' : '';
+    clearTimeout(chat.typingTimer);
+    if (on) chat.typingTimer = setTimeout(() => { $('chatTyping').textContent = ''; }, 6000);
+  }
+  function renderChatBadge() { $('chatBadge').textContent = chat.unread > 9 ? '9+' : chat.unread; $('chatBadge').classList.toggle('hidden', !chat.unread); }
+  function setChatOpen(open) {
+    chat.open = open;
+    $('chatPanel').classList.toggle('hidden', !open);
+    $('chatPeek').classList.add('hidden');
+    if (open) { chat.unread = 0; renderChatBadge(); $('chatMsgs').scrollTop = 1e9; if (matchMedia('(pointer:fine)').matches) $('chatInput').focus(); }
+  }
+  function showChat(on) {
+    $('chatRoot').classList.toggle('hidden', !on);
+    if (!on) setChatOpen(false);
+  }
+  $('chatFab').onclick = () => setChatOpen(!chat.open);
+  $('chatPeek').onclick = () => setChatOpen(true);
+  $('chatClose').onclick = () => setChatOpen(false);
+  $('chatForm').onsubmit = e => { e.preventDefault(); chatSend($('chatInput').value); $('chatInput').value = ''; };
+  $('chatEmojis').onclick = e => { if (e.target.tagName === 'BUTTON') chatSend(e.target.textContent); };
+  $('chatInput').addEventListener('input', () => {
+    if (!link) return;
+    const now = Date.now();
+    if ($('chatInput').value && now - chat.sentTyping > 3000) { link.send({ type: 'typing', on: true }); chat.sentTyping = now; }
+  });
+  // Keep the chat visible over our own full screen views.
+  document.addEventListener('fullscreenchange', () => {
+    const fs = document.fullscreenElement;
+    const root = $('chatRoot');
+    (fs && fs.tagName !== 'VIDEO' && fs.tagName !== 'IFRAME' ? fs : document.body).appendChild(root);
+  });
+
   // ---------- Share a tab: live screen from one partner to the other ----------
   const liveVideo = $('liveVideo');
   function renderLive() {
@@ -906,7 +1015,8 @@
     try { await liveVideo.play(); } catch (_) { liveVideo.muted = true; liveVideo.play().catch(() => {}); $('liveTap').classList.add('show'); }
   });
   $('liveTapBtn').onclick = () => { liveVideo.muted = false; liveVideo.play().catch(() => {}); $('liveTap').classList.remove('show'); };
-  $('liveFull').onclick = () => { const el = liveVideo; (el.requestFullscreen ? el.requestFullscreen() : el.webkitEnterFullscreen ? el.webkitEnterFullscreen() : Promise.resolve()).catch(() => {}); };
+  // Full screen the wrapper (not the video) where possible, so the chat can sit on top.
+  $('liveFull').onclick = () => { const w = $('liveWrap'); if (w.requestFullscreen) w.requestFullscreen().catch(() => {}); else if (liveVideo.webkitEnterFullscreen) liveVideo.webkitEnterFullscreen(); };
   $('liveAsk').onclick = () => { if (link) { link.send({ type: 'share-ask' }); toast('Asked your partner to pause'); } };
   $('tabStopBtn').onclick = () => share.stop();
   $('tabShareBtn').onclick = async () => {

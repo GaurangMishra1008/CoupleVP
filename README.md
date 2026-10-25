@@ -46,6 +46,10 @@ Some sites only play inside their own player, so a link can't be pulled out. For
 - The sharer controls play and pause on the site. The watcher has "Ask to pause" and full screen.
 - DRM services (Netflix, Prime, Hotstar…) show a black picture when shared. That is their protection, and nothing can get around it.
 
+## Chat
+
+Once you're connected, a 💬 button sits in the corner on every tab. Messages go over the same device-to-device link as play and pause, and live only in the open page: nothing is saved anywhere, and they're gone when you close it. It shows when your partner is typing, an unread count, a preview of new messages, and quick emoji. In the "Share a tab" full screen view the chat stays on top.
+
 ## Picking different things
 If one of you picks something while the other is on something else, the other gets a popup: **watch theirs or keep mine?**
 - Watch theirs: you both switch (YouTube switches automatically; for files, the matching episode/song is picked if you have it, otherwise you're asked to pick it).
