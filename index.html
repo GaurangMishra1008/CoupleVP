@@ -107,6 +107,8 @@
   .ytcard .dur { position:absolute; right:6px; bottom:6px; background:rgba(0,0,0,.8); font-size:.72rem; padding:1px 5px; border-radius:4px; }
   .ytcard .t { font-size:.85rem; font-weight:600; padding:6px 8px 2px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
   .ytcard .c { font-size:.75rem; color:var(--muted); padding:0 8px 8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #liveVideo { width:100%; background:#000; border-radius:12px; display:block; max-height:80vh; }
+  .tapBtn2 { font-size:1.1rem; padding:14px 22px; }
   #vimeoBox { aspect-ratio:16/9; background:#000; border-radius:12px; overflow:hidden; }
   #vimeoBox iframe { width:100%; height:100%; border:0; display:block; }
   #log { font:12px ui-monospace,Menlo,monospace; color:var(--muted); max-height:120px; overflow:auto; white-space:pre-wrap; }
@@ -218,6 +220,33 @@
       <div id="vimeoBox" class="hidden"></div>
       <div class="overlay" id="tapOverlay3"><button class="tapBtn">Tap to start syncing</button></div>
     </section>
+    <section class="card" id="tabShareCard">
+      <div style="font-weight:700;margin-bottom:4px">🖥 Site with its own player?</div>
+      <div class="small" style="line-height:1.6">Open the site in another tab and start the video there. Then tap <b>Share a tab</b> and pick that tab. Your partner watches it live here, with sound. You control play and pause on the site.</div>
+      <div class="row" style="margin-top:10px">
+        <button id="tabShareBtn">🖥 Share a tab</button>
+        <button id="tabStopBtn" class="ghost hidden">Stop sharing</button>
+      </div>
+      <div class="small" id="tabShareInfo" style="margin-top:8px"></div>
+      <details style="margin-top:8px"><summary class="small">Good to know</summary>
+        <div class="small" style="margin-top:6px;line-height:1.6">
+          • Sharing works from a computer (Chrome or Edge are best). Phones can watch but can't share.<br>
+          • For sound, pick a <b>Chrome tab</b> (not a window) and keep <b>"Also share tab audio"</b> ticked.<br>
+          • Netflix, Prime Video, Hotstar and other DRM sites show a black screen when shared. That's their protection.<br>
+          • The picture goes straight between your two devices. Nothing is recorded or stored.
+        </div>
+      </details>
+    </section>
+    <section class="hidden" id="liveStage">
+      <div class="stage">
+        <video id="liveVideo" autoplay playsinline></video>
+        <div class="overlay" id="liveTap"><button id="liveTapBtn" class="tapBtn2">🔊 Tap to watch with sound</button></div>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button id="liveFull" class="ghost">⛶ Full screen</button>
+        <button id="liveAsk" class="ghost">⏸ Ask to pause</button>
+      </div>
+    </section>
   </div>
 
   <div id="ytPane" class="hidden">
@@ -271,6 +300,7 @@
 <script src="ytbrowse.js"></script>
 <script src="yt.js"></script>
 <script src="web.js"></script>
+<script src="share.js"></script>
 <script>
 (() => {
   const $ = id => document.getElementById(id);
@@ -286,6 +316,7 @@
 
   // ---------- transport (PeerJS data channel; BroadcastChannel in ?test mode) ----------
   let link = null;        // { send(obj) }
+  const share = new CVPShare.Share(o => { if (link) link.send(o); }); // live tab sharing (share.js)
   let peer = null;
   function onLinkOpen(sendFn) {
     link = { send: o => { try { sendFn(JSON.stringify(o)); } catch (e) { log('send failed', e); } } };
@@ -299,7 +330,7 @@
     if (isLeader) sendState('hello');
     renderHero();
   }
-  function onLinkClose() { link = null; partner = { presence: 'none', file: null, cantPlay: null, missing: null }; setStatus('Disconnected. Refresh both pages to reconnect.', ''); stopClockSync(); renderHero(); setHero('Disconnected', 'Your partner left', 'Refresh both pages to reconnect.', { warn: true }); }
+  function onLinkClose() { share.stop(false); link = null; partner = { presence: 'none', file: null, cantPlay: null, missing: null }; setStatus('Disconnected. Refresh both pages to reconnect.', ''); stopClockSync(); renderHero(); setHero('Disconnected', 'Your partner left', 'Refresh both pages to reconnect.', { warn: true }); }
   function onRaw(data) { try { handle(JSON.parse(data)); } catch (e) { log('bad msg', e); } }
 
   function wirePeerConn(conn) {
@@ -530,6 +561,8 @@
         onRemoteEpisode(m); break;
       case 'yt': partner.file = { name: 'yt:' + m.id, title: m.title || '' }; partner.presence = 'idle'; if (!myName() || myName() === 'yt:' + m.id || clash !== 'flavours') openYouTube(m.id); renderHero(); break;
       case 'propose': onPropose(m); break;
+      case 'rtc': case 'share-end': share.handle(m).catch(e => log('share', e.message || e)); break;
+      case 'share-ask': toast('Your partner asked to pause ⏸'); break;
       case 'stream': partner.file = { name: m.name, title: m.title || '' }; partner.presence = 'idle'; if (myName() !== m.name && clash !== 'flavours') openStream(m.name); renderHero(); break;
       case 'answer': onAnswer(m); break;
       case 'final': onFinal(m); break;
@@ -849,6 +882,47 @@
   webVideo.addEventListener('streamerror', e => streamFail('The stream didn\'t load (' + e.detail + '). The site may block other sites from using it, or the link expired.'));
   vimeo.addEventListener('error', e => setWebMsg('Vimeo: ' + ((e.detail && e.detail.message) || 'this video can\'t be played here (it may be private or not allow embedding).'), true));
 
+  // ---------- Share a tab: live screen from one partner to the other ----------
+  const liveVideo = $('liveVideo');
+  function renderLive() {
+    const r = share.role;
+    $('liveStage').classList.toggle('hidden', r !== 'watching');
+    $('tabShareBtn').classList.toggle('hidden', r === 'sharing');
+    $('tabStopBtn').classList.toggle('hidden', r !== 'sharing');
+    $('tabShareInfo').textContent = r === 'sharing' ? 'Sharing live. Switch to the other tab and press play there.' : r === 'watching' ? '' : $('tabShareInfo').textContent;
+    $('tabShareInfo').className = 'small';
+    if (r !== 'watching') { liveVideo.srcObject = null; $('liveTap').classList.remove('show'); if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); }
+    renderHero();
+  }
+  share.addEventListener('change', renderLive);
+  share.addEventListener('trouble', e => { $('tabShareInfo').textContent = e.detail + ' Try again, or both join the same Wi-Fi.'; $('tabShareInfo').className = 'small warn'; });
+  share.addEventListener('stream', async e => {
+    setMode('web', false);
+    if (!media.paused) { suppress(); media.pause(); }
+    liveVideo.srcObject = e.detail;
+    renderLive();
+    $('liveStage').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    liveVideo.muted = false;
+    try { await liveVideo.play(); } catch (_) { liveVideo.muted = true; liveVideo.play().catch(() => {}); $('liveTap').classList.add('show'); }
+  });
+  $('liveTapBtn').onclick = () => { liveVideo.muted = false; liveVideo.play().catch(() => {}); $('liveTap').classList.remove('show'); };
+  $('liveFull').onclick = () => { const el = liveVideo; (el.requestFullscreen ? el.requestFullscreen() : el.webkitEnterFullscreen ? el.webkitEnterFullscreen() : Promise.resolve()).catch(() => {}); };
+  $('liveAsk').onclick = () => { if (link) { link.send({ type: 'share-ask' }); toast('Asked your partner to pause'); } };
+  $('tabStopBtn').onclick = () => share.stop();
+  $('tabShareBtn').onclick = async () => {
+    const info = $('tabShareInfo');
+    if (!link) { info.textContent = 'Connect with your partner first.'; info.className = 'small warn'; return; }
+    if (!CVPShare.canShare()) { info.textContent = 'This device can\'t share its screen (phones usually can\'t). Share from a computer, and watch here.'; info.className = 'small warn'; return; }
+    if (!media.paused) { suppress(); media.pause(); }
+    try {
+      const r = await share.start();
+      if (!r.audio) toast('No sound is being shared. Pick a Chrome tab and tick "tab audio" for sound.');
+    } catch (e) {
+      info.textContent = e.name === 'NotAllowedError' ? 'Sharing was cancelled.' : 'Couldn\'t start sharing: ' + (e.message || e.name);
+      info.className = 'small warn';
+    }
+  };
+
   // ---------- YouTube browse: trending + search ----------
   let browseKind = 'videos', browseLoaded = false, browseQuery = '';
   async function loadBrowse() {
@@ -1068,6 +1142,8 @@
       const waiting = $('shareCard') && !$('shareCard').classList.contains('hidden');
       return setHero(waiting ? 'Room open' : 'Not connected', waiting ? 'Waiting for your partner to join…' : 'Create a room, or join your partner\'s', waiting ? 'Share the link or the code below.' : '', { pulse: waiting });
     }
+    if (share.role === 'watching') return setHero('Live from your partner 🖥', 'You\'re watching their screen', share.remoteAudio ? 'With sound. They control play and pause.' : 'No sound is coming through. They need to share a Chrome tab with "tab audio" ticked.', { warn: !share.remoteAudio });
+    if (share.role === 'sharing') return setHero('You\'re sharing 🖥', 'Your partner sees your tab live', share.local && share.local.getAudioTracks().length ? 'With sound. Play and pause on the site as usual.' : 'No sound is being shared. Share a Chrome tab and keep "tab audio" ticked.', { warn: !(share.local && share.local.getAudioTracks().length) });
     if (clash === 'flavours' && partner.file && mine) {
       return setHero('Oops!', 'Different flavours today 🍦🍕', `You're on ${nice(mine, mineTitle)}, your partner is on ${nice(partner.file.name, partner.file.title)}.`, { button: isAudio(partner.file.name) ? 'Listen to theirs instead' : 'Watch theirs instead' });
     }

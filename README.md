@@ -37,6 +37,15 @@ The 🌐 Links tab plays a pasted link on both devices, in sync, like YouTube. Y
 - Doesn't work: Netflix, Prime Video, Disney+/Hotstar, JioCinema, SonyLIV and other paid services. They lock their videos with DRM so no other site can play them; the app says so instead of trying.
 - Ordinary web pages with a video on them don't work either. You need the video's own address, not the page's. Some sites also block other sites from loading their videos or streams; the app shows a message when that happens.
 
+## Share a tab (sites with their own player)
+
+Some sites only play inside their own player, so a link can't be pulled out. For those, the Links tab has **🖥 Share a tab**. One partner opens the site in another tab and starts the video, then taps Share a tab and picks that tab. The other partner watches it live in the app, with sound. The picture and sound go straight between the two devices over WebRTC; the offer and answer travel over the existing link. PeerJS's public relay is used only when the devices can't reach each other directly.
+
+- Sharing needs a computer. Chrome or Edge are best, since they can send a tab's sound. Phones can watch but usually can't share.
+- For sound, pick a Chrome tab (not a window) and keep "Also share tab audio" ticked.
+- The sharer controls play and pause on the site. The watcher has "Ask to pause" and full screen.
+- DRM services (Netflix, Prime, Hotstar…) show a black picture when shared. That is their protection, and nothing can get around it.
+
 ## Picking different things
 If one of you picks something while the other is on something else, the other gets a popup: **watch theirs or keep mine?**
 - Watch theirs: you both switch (YouTube switches automatically; for files, the matching episode/song is picked if you have it, otherwise you're asked to pick it).
