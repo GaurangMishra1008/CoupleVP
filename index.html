@@ -136,6 +136,12 @@
   @media (max-width:600px) { #chatRoot { right:10px; bottom:10px; } #chatPanel { height:min(380px, 46vh); } #chatFab { width:50px; height:50px; } }
   .fs-wrap:fullscreen { background:#000; display:flex; align-items:center; justify-content:center; }
   .fs-wrap:fullscreen video { max-height:100vh; height:100%; width:100%; border-radius:0; }
+  .people { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }
+  .people span { background:#2a2a36; border-radius:999px; padding:4px 10px; font-size:.85rem; }
+  .people span.me { background:var(--accent); color:#fff; }
+  .people span .st { color:var(--muted); font-size:.75rem; margin-left:4px; }
+  .people span.me .st { color:#ffe; }
+  .cm .nm { display:block; font-size:.72rem; font-weight:700; color:var(--accent); margin-bottom:1px; }
   #log { font:12px ui-monospace,Menlo,monospace; color:var(--muted); max-height:120px; overflow:auto; white-space:pre-wrap; }
 </style>
 </head>
@@ -168,6 +174,11 @@
     <div class="row" style="justify-content:space-between">
       <span class="code" id="codeOut"></span>
       <button id="shareBtn" class="ghost">Share link</button>
+    </div>
+    <div id="people" class="people"></div>
+    <div class="row" style="margin-top:8px">
+      <label class="small" for="nameInput">Your name</label>
+      <input type="text" id="nameInput" maxlength="24" autocomplete="nickname" placeholder="Your name" style="flex:1;min-width:0;text-transform:none;letter-spacing:0">
     </div>
   </section>
 
@@ -224,7 +235,7 @@
 
   <div id="webPane" class="hidden">
     <section class="card">
-      <div class="small" style="margin-bottom:8px">Paste a video link from another site. It opens for your partner too, and stays in sync.</div>
+      <div class="small" style="margin-bottom:8px">Paste a video link from another site. Everyone in the room gets it, and it stays in sync.</div>
       <div class="row">
         <input type="text" id="webInput" placeholder="https://…/video.mp4, .m3u8 or vimeo.com/…" autocomplete="off" style="text-transform:none;letter-spacing:0">
         <button id="webGo">Play</button>
@@ -247,7 +258,7 @@
     </section>
     <section class="card" id="tabShareCard">
       <div style="font-weight:700;margin-bottom:4px">🖥 Site with its own player?</div>
-      <div class="small" style="line-height:1.6">Open the site in another tab and start the video there. Then tap <b>Share a tab</b> and pick that tab. Your partner watches it live here, with sound. You control play and pause on the site.</div>
+      <div class="small" style="line-height:1.6">Open the site in another tab and start the video there. Then tap <b>Share a tab</b> and pick that tab. Everyone in the room watches it live here, with sound. You control play and pause on the site.</div>
       <div class="row" style="margin-top:10px">
         <button id="tabShareBtn">🖥 Share a tab</button>
         <button id="tabStopBtn" class="ghost hidden">Stop sharing</button>
@@ -321,7 +332,7 @@
 
 <div id="chatRoot" class="hidden">
   <div id="chatPanel" class="hidden" role="dialog" aria-label="Chat">
-    <div id="chatHead">💬 Chat <span class="small">· only on your two devices, not saved</span><button id="chatClose" aria-label="Close chat">✕</button></div>
+    <div id="chatHead">💬 Chat <span class="small">· device to device, not saved</span><button id="chatClose" aria-label="Close chat">✕</button></div>
     <div id="chatMsgs"></div>
     <div id="chatTyping"></div>
     <div id="chatEmojis"></div>
@@ -350,96 +361,246 @@
   const setStatus = (text, kind) => { $('statusText').textContent = text; $('dot').className = 'dot ' + (kind || ''); };
   const makeCode = () => { const c = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; let s = ''; for (let i = 0; i < 6; i++) s += c[Math.floor(Math.random() * c.length)]; return s; };
 
-  // ---------- transport (PeerJS data channel; BroadcastChannel in ?test mode) ----------
-  let link = null;        // { send(obj) }
-  const share = new CVPShare.Share(o => { if (link) link.send(o); }); // live tab sharing (share.js)
+  // ---------- transport ----------
+  // The room creator is the hub: everyone else connects to them (PeerJS data channel; BroadcastChannel
+  // in ?test mode), and the hub passes each message on to the others. Messages carry `from`, and `to`
+  // when meant for one person only.
+  const MAX_PEOPLE = 8;
+  const randId = () => Math.random().toString(36).slice(2, 10);
+  const myId = (() => { try { let i = sessionStorage.getItem('cvp-id'); if (!i) { i = randId(); sessionStorage.setItem('cvp-id', i); } return i; } catch (_) { return randId(); } })();
+  let myNick = ''; try { myNick = localStorage.getItem('cvp-name') || ''; } catch (_) {}
+  const nickOrDefault = () => myNick || 'Guest ' + myId.slice(0, 3).toUpperCase();
+  let amHost = false;
+  let hubIdGuess = null;        // the room creator's id
+  let link = null;              // { send(obj) } while we're connected to at least one person
+  const members = new Map();    // hub only: id -> { conn, name }
+  let hubConn = null;           // everyone else: our connection to the hub
+  const peers = new Map();      // everyone else in the room: id -> { id, name, presence, file, cantPlay, missing, at }
+  const share = new CVPShare.Share(o => { if (link) link.send(o); }, () => [...peers.keys()]); // live tab sharing (share.js)
   let peer = null;
-  function onLinkOpen(sendFn) {
-    link = { send: o => { try { sendFn(JSON.stringify(o)); } catch (e) { log('send failed', e); } } };
-    setStatus('Connected', 'ok');
-    $('roomCard').classList.add('hidden');
-    showChat(true);
-    startClockSync();
+  const isGroup = () => peers.size >= 2;
+  const peerOf = id => {
+    if (!peers.has(id)) peers.set(id, { id, name: '', presence: 'none', file: null, cantPlay: null, missing: null, at: 0 });
+    return peers.get(id);
+  };
+  const nameOf = id => (peers.get(id) && peers.get(id).name) || (isGroup() ? 'Someone' : 'Your partner');
+  // "Your partner" when it's just the two of you, their name in a group.
+  const who = id => isGroup() ? nameOf(id) : 'Your partner';
+
+  function makeLink() {
+    link = { send: o => {
+      o.from = myId;
+      const s = JSON.stringify(o);
+      try {
+        if (amHost) { for (const [id, mb] of members) if (!o.to || o.to === id) mb.conn.send(s); }
+        else if (hubConn) hubConn.send(s);
+      } catch (e) { log('send failed', e); }
+    } };
+  }
+
+  // Hub: someone's connection opened and they said hello.
+  function hubAdd(conn, hello) {
+    const old = members.get(hello.id);
+    if (old && old.conn !== conn) { old.replaced = true; try { old.conn.close(); } catch (_) {} } // same person reconnecting (refresh, network change)
+    else if (!old && members.size + 1 >= MAX_PEOPLE) { conn.send(JSON.stringify({ type: 'full', max: MAX_PEOPLE })); setTimeout(() => conn.close(), 500); return; }
+    members.set(hello.id, { conn, name: String(hello.name || '').slice(0, 24) });
+    conn.memberId = hello.id;
+    const first = !link;
+    if (first) makeLink();
+    syncRoster(old ? null : hello.id, null);
+    if (first) onLinkOpen(); else greet();
+  }
+  function hubRemove(conn) {
+    const id = conn.memberId, mb = id && members.get(id);
+    if (!mb || mb.conn !== conn) return;
+    members.delete(id);
+    syncRoster(null, id);
+    if (!members.size) onLinkClose();
+  }
+  function hubData(conn, raw) {
+    let m; try { m = JSON.parse(raw); } catch (_) { return; }
+    if (m.type === 'hello') return hubAdd(conn, m);
+    if (!conn.memberId || members.get(conn.memberId)?.conn !== conn) return;
+    m.from = conn.memberId; // trust the connection, not the message
+    if (m.type === 'name') { members.get(m.from).name = String(m.name || '').slice(0, 24); syncRoster(null, null); return; }
+    if (m.type === 'ping') return handle(m);
+    const s = JSON.stringify(m);
+    for (const [id, mb] of members) if (id !== m.from && (!m.to || m.to === id)) { try { mb.conn.send(s); } catch (_) {} }
+    if (!m.to || m.to === myId) handle(m);
+  }
+  // Hub tells everyone who's in the room.
+  function syncRoster(joined, left) {
+    const list = [{ id: myId, name: nickOrDefault(), host: true }, ...[...members].map(([id, mb]) => ({ id, name: mb.name }))];
+    applyRoster({ members: list, joined, left });
+    const s = JSON.stringify({ type: 'roster', members: list, joined, left, from: myId });
+    for (const [, mb] of members) { try { mb.conn.send(s); } catch (_) {} }
+  }
+  function applyRoster(m) {
+    const leftName = m.left && peers.get(m.left) ? peers.get(m.left).name : '';
+    const ids = new Set();
+    for (const p of m.members) { if (p.id === myId) continue; ids.add(p.id); peerOf(p.id).name = p.name || 'Guest'; peerOf(p.id).host = !!p.host; }
+    for (const id of [...peers.keys()]) if (!ids.has(id)) { peers.delete(id); share.forget(id); }
+    if (isGroup() && clash) { clash = null; closeModal(); }
+    if (m.joined && m.joined !== myId) { chatNote(`${nameOf(m.joined)} joined`); if (!amHost) greet(); }
+    if (m.left && m.left !== myId) { chatNote(`${leftName || 'Someone'} left`); typers.delete(m.left); }
+    renderPeople(); renderHero(); renderEpisodes();
+  }
+
+  // Everyone else: data from the hub.
+  function memberData(raw) {
+    let m; try { m = JSON.parse(raw); } catch (_) { return; }
+    if (m.type === 'full') { joinGaveUp = true; setStatus(`This room is full (${m.max} people max). Ask for a new room.`, ''); return; }
+    if (m.type === 'roster') {
+      hubIdGuess = (m.members.find(p => p.host) || {}).id;
+      const first = !link;
+      if (first) { makeLink(); applyRoster(m); onLinkOpen(); } else applyRoster(m);
+      return;
+    }
+    if (!link || (m.to && m.to !== myId)) return;
+    handle(m);
+  }
+
+  // Send everyone what we're on, so a newcomer sees it right away.
+  function greet() {
+    if (!link) return;
     sendFileInfo();
     if (playlist.length && epIndex >= 0) link.send({ type: 'episode', name: playlist[epIndex].file.name });
-    if (media !== video && media.src && !pendingShare) link.send({ type: 'file', name: media.dataset.name, title: media.dataset.title || '', duration: media.duration || 0 });
-    if (pendingShare) { const id = pendingShare; pendingShare = null; setTimeout(() => announcePick('yt:' + id, { how: 'share' }), 800); }
+    if (media !== video && media.src) link.send({ type: 'file', name: media.dataset.name, title: media.dataset.title || '', duration: media.duration || 0 });
     if (isLeader) sendState('hello');
+    share.newcomer();
+  }
+  function onLinkOpen() {
+    setStatus(amHost ? 'Connected' : 'Connected', 'ok');
+    $('roomCard').classList.add('hidden');
+    showChat(true);
+    if (!amHost) startClockSync();
+    greet();
+    if (pendingShare) { const id = pendingShare; pendingShare = null; setTimeout(() => announcePick('yt:' + id, { how: 'share' }), 800); }
     renderHero();
   }
-  function onLinkClose() { share.stop(false); if (link) chatNote('Your partner left');  link = null; partner = { presence: 'none', file: null, cantPlay: null, missing: null }; setStatus('Disconnected. Refresh both pages to reconnect.', ''); stopClockSync(); renderHero(); setHero('Disconnected', 'Your partner left', 'Refresh both pages to reconnect.', { warn: true }); }
-  function onRaw(data) { try { handle(JSON.parse(data)); } catch (e) { log('bad msg', e); } }
-
-  function wirePeerConn(conn) {
-    let opened = false;
-    conn.on('open', () => { opened = true; log('data channel open'); onLinkOpen(d => conn.send(d)); });
-    conn.on('data', onRaw);
-    conn.on('close', () => { if (opened) onLinkClose(); });
-    conn.on('error', e => log('conn error', e));
-    // Found the room but the direct link never came up: usually a strict network (mobile data / office wifi).
-    setTimeout(() => { if (!opened && !link && conn.open === false && peer && !peer.destroyed && conn.peerConnection) setStatus('Found your partner but could not connect directly. Try both on the same Wi-Fi.', 'wait'); }, 20000);
+  function onLinkClose() {
+    share.stop(false);
+    link = null; peers.clear(); clash = null;
+    stopClockSync(); renderPeople();
+    if (amHost) {
+      setStatus('Everyone left. The room is still open.', 'wait');
+      chatNote('Everyone left');
+      renderHero();
+    } else {
+      chatNote('Connection lost, reconnecting…');
+      setStatus('Connection lost. Reconnecting…', 'wait');
+      renderHero(); setHero('Reconnecting…', 'Lost the connection', 'Trying to get back into the room.', { warn: true, pulse: true });
+      reconnect();
+    }
   }
 
   function rememberRoom(code, host) { try { localStorage.setItem('cvp-last-room', JSON.stringify({ code, host, at: Date.now() })); } catch (_) {} }
+
+  // PeerJS connection -> the small conn interface the hub and members use.
+  function wrapPeerConn(conn, { onOpen, onData, onClose }) {
+    const c = { send: s => conn.send(s), close: () => conn.close(), open: false };
+    conn.on('open', () => { c.open = true; onOpen(c); });
+    conn.on('data', d => onData(c, d));
+    conn.on('close', () => { if (c.open) { c.open = false; onClose(c); } });
+    conn.on('error', e => log('conn error', e));
+    return c;
+  }
+
   function hostRoom(code, attempt = 0) {
+    amHost = true;
     rememberRoom(code, true);
     showCode(code);
     try { sessionStorage.setItem('cvp-host', code); } catch (_) {}
-    if (params.has('test')) return testTransport(code, true);
-    setStatus('Waiting for your partner to join…', 'wait');
+    if (params.has('test')) return testHub(code);
+    setStatus('Waiting for people to join…', 'wait');
     if (peer) { try { peer.destroy(); } catch (_) {} }
     peer = new Peer(PREFIX + code, { debug: 1 });
-    peer.on('open', () => { log('room ready', code); setStatus('Room ready. Waiting for your partner to join…', 'wait'); });
-    peer.on('connection', conn => {
-      if (link) { conn.close(); return; } // only two people per room
-      wirePeerConn(conn);
-    });
-    peer.on('disconnected', () => { if (!peer.destroyed) { log('signaling lost, reconnecting'); peer.reconnect(); } });
+    peer.on('open', () => { log('room ready', code); if (!link) setStatus('Room ready. Waiting for people to join…', 'wait'); });
+    peer.on('connection', conn => wrapPeerConn(conn, { onOpen: () => {}, onData: hubData, onClose: hubRemove }));
+    peer.on('disconnected', () => { if (!peer.destroyed) { log('signaling lost, reconnecting'); setTimeout(() => { if (!peer.destroyed && peer.disconnected) peer.reconnect(); }, 1000); } });
     peer.on('error', e => {
       log('peer error', e.type);
       if (e.type === 'unavailable-id') {
         // After a refresh the server can hold our old id for a few seconds: retry, then give up and make a new room.
         if (attempt < 6) { setStatus('Reopening room…', 'wait'); setTimeout(() => hostRoom(code, attempt + 1), 2500); }
         else hostRoom(makeCode());
+      } else if (e.type === 'network' || e.type === 'server-error' || e.type === 'socket-error' || e.type === 'socket-closed') {
+        if (!link) setStatus('Can\'t reach the connection server. Retrying…', 'wait');
+        setTimeout(() => { if (peer && !peer.destroyed && peer.disconnected) peer.reconnect(); }, 3000);
       } else if (!link) setStatus('Connection error: ' + e.type + '. Refresh to try again.', '');
     });
   }
 
+  let roomCode = null, joinTries = 0, joinGaveUp = false, reconnect = () => {};
   function joinRoom(code) {
+    roomCode = code;
     rememberRoom(code, false);
     isLeader = false;
     showCode(code);
-    if (params.has('test')) return testTransport(code, false);
+    if (params.has('test')) return testMember(code);
     setStatus('Connecting…', 'wait');
     peer = new Peer({ debug: 1 });
-    let tries = 0, conn = null;
     const tryConnect = () => {
-      if (link) return;
-      if (conn) { try { conn.close(); } catch (_) {} }
-      conn = peer.connect(PREFIX + code, { reliable: true });
-      wirePeerConn(conn);
+      if (link || joinGaveUp || peer.destroyed) return;
+      if (hubConn) { try { hubConn.close(); } catch (_) {} hubConn = null; }
+      if (peer.disconnected) { peer.reconnect(); return; } // 'open' calls us again
+      const conn = peer.connect(PREFIX + code, { reliable: true });
+      let opened = false;
+      hubConn = wrapPeerConn(conn, {
+        onOpen: c => { opened = true; joinTries = 0; c.send(JSON.stringify({ type: 'hello', id: myId, name: nickOrDefault() })); },
+        onData: (c, d) => { if (hubConn === c) memberData(d); },
+        onClose: c => { if (hubConn === c) { hubConn = null; if (link) onLinkClose(); else setTimeout(tryConnect, 2000); } },
+      });
+      // Found the room but the direct link never came up: usually a strict network (mobile data / office wifi).
+      setTimeout(() => { if (!opened && !link && !joinGaveUp) { setStatus('Found the room but could not connect directly. Retrying… (same Wi-Fi helps)', 'wait'); tryConnect(); } }, 20000);
     };
+    reconnect = () => { joinTries = 0; setTimeout(tryConnect, 1000); };
     peer.on('open', tryConnect);
-    peer.on('disconnected', () => { if (!peer.destroyed && !link) peer.reconnect(); });
+    peer.on('disconnected', () => { if (!peer.destroyed) setTimeout(() => { if (peer.disconnected && !peer.destroyed) peer.reconnect(); }, 1000); });
     peer.on('error', e => {
       log('peer error', e.type);
       if (e.type === 'peer-unavailable') {
-        // The host may not be online yet (or is reloading). Keep trying for about 2 minutes.
-        if (++tries <= 40) { setStatus('Waiting for the room creator to open the page…', 'wait'); setTimeout(tryConnect, 3000); }
-        else setStatus('Room not found. Check the code, or ask your partner to create a new room.', '');
+        // The room creator may not be online yet (or is reloading). Keep trying for about 2 minutes.
+        if (++joinTries <= 40) { setStatus(link ? 'Reconnecting…' : 'Waiting for the room creator to open the page…', 'wait'); setTimeout(tryConnect, 3000); }
+        else { joinGaveUp = true; setStatus('Room not found. Check the code, or ask for a new room.', ''); }
+      } else if (e.type === 'network' || e.type === 'server-error' || e.type === 'socket-error' || e.type === 'socket-closed') {
+        if (!link) setStatus('Can\'t reach the connection server. Retrying…', 'wait');
+        setTimeout(tryConnect, 3000);
       } else if (!link) setStatus('Connection error: ' + e.type + '. Refresh to try again.', '');
     });
   }
 
-  // Same-browser test transport so the sync logic can be tested without a network.
-  function testTransport(code, host) {
-    const bc = new BroadcastChannel('cvp-' + code);
-    let opened = false;
-    bc.onmessage = e => {
-      if (e.data === 'hi' || e.data === 'hi-ack') { if (e.data === 'hi') bc.postMessage('hi-ack'); if (!opened) { opened = true; onLinkOpen(d => bc.postMessage(d)); } return; }
-      onRaw(e.data);
+  // Same-browser test transport (?test): one BroadcastChannel per member, like a data channel to the hub.
+  function bcConn(name, { onData, onClose }) {
+    const bc = new BroadcastChannel(name);
+    const c = { send: s => bc.postMessage(s), close: () => { bc.postMessage('__bye'); bc.close(); } };
+    bc.onmessage = e => { if (e.data === '__bye') { bc.close(); onClose(c); } else onData(c, e.data); };
+    addEventListener('pagehide', () => { try { bc.postMessage('__bye'); } catch (_) {} });
+    return c;
+  }
+  function testHub(code) {
+    const hub = new BroadcastChannel('cvp-' + code);
+    hub.onmessage = e => {
+      if (e.data && e.data.k === 'knock') {
+        bcConn('cvp-' + code + '-' + e.data.id, { onData: hubData, onClose: hubRemove });
+        hub.postMessage({ k: 'come-in', id: e.data.id });
+      }
     };
-    bc.postMessage('hi');
+    hub.postMessage({ k: 'hub-up' });
+  }
+  function testMember(code) {
+    const hub = new BroadcastChannel('cvp-' + code);
+    const knock = () => { if (!link) hub.postMessage({ k: 'knock', id: myId }); };
+    hub.onmessage = e => {
+      if (e.data && e.data.k === 'hub-up') knock();
+      if (e.data && e.data.k === 'come-in' && e.data.id === myId) {
+        if (hubConn) return;
+        hubConn = bcConn('cvp-' + code + '-' + myId, { onData: (c, d) => memberData(d), onClose: () => { hubConn = null; if (link) onLinkClose(); } });
+        hubConn.send(JSON.stringify({ type: 'hello', id: myId, name: nickOrDefault() }));
+      }
+    };
+    reconnect = () => setTimeout(knock, 500);
+    knock();
   }
 
   function showCode(code) {
@@ -452,14 +613,15 @@
   }
 
   // ---------- clock sync (NTP style) ----------
-  // offset = remoteClock - localClock, picked from the sample with the lowest round trip.
+  // Everyone syncs their clock to the room creator's.
+  // offset = hubClock - localClock, picked from the sample with the lowest round trip.
   let offset = 0, bestRtt = Infinity, rtt = 0, pingTimer = null, samples = [];
   function startClockSync() {
     let n = 0;
-    const ping = () => { link && link.send({ type: 'ping', t0: now() }); if (++n === 8) { clearInterval(pingTimer); pingTimer = setInterval(ping, 5000); } };
+    const ping = () => { link && link.send({ type: 'ping', t0: now(), to: hubIdGuess }); if (++n === 8) { clearInterval(pingTimer); pingTimer = setInterval(ping, 5000); } };
     pingTimer = setInterval(ping, 250); ping();
   }
-  function stopClockSync() { clearInterval(pingTimer); }
+  function stopClockSync() { clearInterval(pingTimer); samples = []; }
   function onPong(m) {
     const t2 = now(), r = t2 - m.t0;
     samples.push({ r, off: m.t1 - (m.t0 + t2) / 2 });
@@ -468,7 +630,9 @@
     offset = best.off; bestRtt = best.r; rtt = r;
     $('peerInfo').textContent = `Latency ${Math.round(r / 2)} ms one way`;
   }
-  const toLocal = remoteTs => remoteTs - offset;
+  // Times we send are on the room creator's clock ("room time"); the creator's offset is 0.
+  const toLocal = roomTs => roomTs - offset;
+  const roomNow = () => now() + offset;
 
   // ---------- playback sync ----------
   // The sync code drives "media": the <video> element for local files, or the YouTube player.
@@ -486,7 +650,7 @@
 
   function sendState(why) {
     if (!link || !media.src) return;
-    link.send({ type: 'state', why, paused: media.paused, pos: media.currentTime, at: now(), name: media.dataset.name });
+    link.send({ type: 'state', why, paused: media.paused, pos: media.currentTime, at: roomNow(), name: media.dataset.name });
   }
 
   function expectedPos(m) {
@@ -497,6 +661,8 @@
   function suppress(ms = media === yt ? 1500 : 600) { lastApplied = null; applyingRemote++; setTimeout(() => applyingRemote--, ms); }
 
   async function applyState(m) {
+    // A saved state from someone on a different video (common in a group) must not touch ours.
+    if (m.name && myName() && !sameVideo(m.name, myName())) { if (pendingState === m) pendingState = null; return; }
     if (!media.src || media.readyState < 1) { pendingState = m; return; }
     if (!unlocked && !m.paused && needsTap()) { pendingState = m; showTap(true); return; }
     const target = expectedPos(m);
@@ -540,7 +706,7 @@
 
   setInterval(() => {
     if (link && isLeader && media.src && !media.paused) {
-      link.send({ type: 'hb', paused: false, pos: media.currentTime, rate: media.playbackRate, at: now(), name: media.dataset.name, since: leaderSince });
+      link.send({ type: 'hb', paused: false, pos: media.currentTime, rate: media.playbackRate, at: roomNow(), name: media.dataset.name, since: leaderSince + offset });
       $('syncInfo').textContent = 'Sync: you are leading';
     }
   }, 1000);
@@ -570,7 +736,7 @@
   onMedia('waiting', () => {
     clearTimeout(stallTimer);
     stallTimer = setTimeout(() => {
-      if (link && !applyingRemote && isLeader && !media.paused) { stalled = true; link.send({ type: 'state', why: 'buffer', paused: true, pos: media.currentTime, at: now(), name: media.dataset.name }); }
+      if (link && !applyingRemote && isLeader && !media.paused) { stalled = true; link.send({ type: 'state', why: 'buffer', paused: true, pos: media.currentTime, at: roomNow(), name: media.dataset.name }); }
     }, 1000);
   });
   onMedia('playing', () => {
@@ -579,38 +745,46 @@
     stalled = false;
   });
 
+  let sender = null; // the person the message being handled came from
   function handle(m) {
+    const P = sender = m.from ? peerOf(m.from) : { presence: 'none' };
+    if (m.type !== 'ping' && m.type !== 'pong' && m.type !== 'hb') P.at = now();
     switch (m.type) {
-      case 'ping': link.send({ type: 'pong', t0: m.t0, t1: now() }); break;
+      case 'ping': if (amHost) link.send({ type: 'pong', t0: m.t0, t1: now(), to: m.from }); break;
       case 'pong': onPong(m); break;
       case 'state': if (otherEpisode(m)) break;
         if (m.why === 'sync' && m.paused && now() < autoStartUntil) break; // stale "paused" reply while we start the next episode
         isLeader = false; log('remote', m.why, m.paused ? 'paused' : 'playing', m.pos.toFixed(2)); applyState(m); break;
       case 'hb': if (!otherEpisode(m)) onHeartbeat(m); break;
       case 'file':
-        partner.file = m; partner.presence = 'idle'; partner.cantPlay = null;
-        if (partner.missing && !sameVideo(partner.missing, m.name)) partner.missing = null;
-        renderHero(); renderEpisodes(); break;
-      case 'left-yt': partner.file = null; partner.presence = 'browsing'; if (clash === 'flavours') clash = null; renderHero(); break;
-      case 'presence': partner.presence = m.state; renderHero(); break;
+        P.file = m; P.presence = 'idle'; P.cantPlay = null;
+        if (P.missing && !sameVideo(P.missing, m.name)) P.missing = null;
+        renderHero(); renderEpisodes(); renderPeople(); break;
+      case 'left-yt': P.file = null; P.presence = 'browsing'; if (clash === 'flavours') clash = null; renderHero(); renderPeople(); break;
+      case 'presence': P.presence = m.state; renderHero(); renderPeople(); break;
       case 'episode':
-        if (clash === 'flavours' && !sameVideo(m.name, myName() || '')) { partner.file = { name: m.name }; renderHero(); break; }
+        if (clash === 'flavours' && !sameVideo(m.name, myName() || '')) { P.file = { name: m.name }; renderHero(); break; }
         onRemoteEpisode(m); break;
-      case 'yt': partner.file = { name: 'yt:' + m.id, title: m.title || '' }; partner.presence = 'idle'; if (!myName() || myName() === 'yt:' + m.id || clash !== 'flavours') openYouTube(m.id); renderHero(); break;
+      case 'yt': P.file = { name: 'yt:' + m.id, title: m.title || '' }; P.presence = 'idle';
+        if (!isGroup() && (!myName() || myName() === 'yt:' + m.id || clash !== 'flavours')) openYouTube(m.id);
+        renderHero(); renderPeople(); break;
       case 'propose': onPropose(m); break;
       case 'rtc': case 'share-end': share.handle(m).catch(e => log('share', e.message || e)); break;
-      case 'share-ask': toast('Your partner asked to pause ⏸'); break;
-      case 'stream': partner.file = { name: m.name, title: m.title || '' }; partner.presence = 'idle'; if (myName() !== m.name && clash !== 'flavours') openStream(m.name); renderHero(); break;
+      case 'share-ask': toast(`${who(m.from)} asked to pause ⏸`); break;
+      case 'stream': P.file = { name: m.name, title: m.title || '' }; P.presence = 'idle';
+        if (!isGroup() && myName() !== m.name && clash !== 'flavours') openStream(m.name);
+        renderHero(); renderPeople(); break;
       case 'answer': onAnswer(m); break;
       case 'final': onFinal(m); break;
       case 'gave-in': clash = null; closeModal(); toast('Your partner gave in and is joining you 💕'); renderHero(); break;
       case 'heart': floatHearts(); break;
       case 'chat': chatReceive(m); break;
-      case 'typing': chatTyping(m.on); break;
+      case 'typing': chatTyping(m.on, m.from); break;
       case 'need-state': sendState('sync'); break;
-      case 'cant-play': partner.cantPlay = m.name; renderHero(); break;
+      case 'cant-play': P.cantPlay = m.name; renderHero(); break;
     }
   }
+
 
   // ---------- local files ----------
   // Files the browser can open itself play directly. Others (like MKV in Safari) are
@@ -629,7 +803,13 @@
   const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   const MEDIA_EXT = /\.(mp4|m4v|mkv|mk3d|webm|mov|avi|ts|m2ts|wmv|ogv|mp3|m4a|aac|flac|wav|ogg|oga|opus|wma|aiff?)$/i;
   let playlist = [], epIndex = -1, autoPlayNext = false, autoStartUntil = 0;
-  let partner = { presence: 'none', file: null, cantPlay: null, missing: null };
+  // The person the banner talks about: the only other person, or in a group whoever picked something last.
+  const NOBODY = { presence: 'none', file: null, cantPlay: null, missing: null, name: '', at: 0 };
+  function focus() {
+    let best = null;
+    for (const p of peers.values()) if (!best || (p.file && !best.file) || (!!p.file === !!best.file && p.at > best.at)) best = p;
+    return best || NOBODY;
+  }
 
   // Folder buttons: a folder picker on computers, a multi-file picker on phones (iOS can't pick folders).
   if (!isMobile && 'webkitdirectory' in document.createElement('input')) { $('seriesInput').webkitdirectory = true; $('albumInput').webkitdirectory = true; }
@@ -660,7 +840,8 @@
     if (!files.length) { setFileMsg('No video or music files found in that selection.', true); return sendPresence('idle'); }
     playlist = sortEpisodes(files);
     // Start where the partner is, if we have that one; else the first.
-    let i = partner.file ? findEpisode(parseTitle(partner.file.name), partner.file.name) : -1;
+    const fp = focus();
+    let i = fp.file ? findEpisode(parseTitle(fp.file.name), fp.file.name) : -1;
     if (i >= 0) { playEpisode(i, { announce: false }); sendFileInfoSoon(); return; }
     playEpisode(0, { announce: false });
     announcePick(playlist[0].file.name);
@@ -701,7 +882,7 @@
     epIndex = i;
     autoPlayNext = autoplay;
     if (autoplay) autoStartUntil = now() + 2500;
-    partner.missing = null;
+    for (const p of peers.values()) p.missing = null;
     loadFile(playlist[i].file);
     renderEpisodes();
     if (announce && link) link.send({ type: 'episode', name: playlist[i].file.name, play: autoplay });
@@ -714,18 +895,18 @@
     other.classList.add('hidden'); other.innerHTML = '';
     ul.classList.toggle('hidden', !playlist.length);
     ul.innerHTML = '';
-    const pName = partner.file && partner.file.name;
+    const others = [...peers.values()].filter(p => p.file);
     playlist.forEach((e, i) => {
       const li = document.createElement('li');
       if (i === epIndex) li.className = 'current';
       const b = document.createElement('button');
       const tag = e.t.kind === 'series' ? e.t.key : String(i + 1).padStart(2, '0');
       const name = e.t.kind === 'series' ? (e.t.episodeTitle || 'Episode ' + e.t.episode) : e.t.kind === 'music' ? label(e.t) : e.file.name;
-      const partnerHere = pName && findEpisodeIn(e, pName);
+      const here = others.filter(p => findEpisodeIn(e, p.file.name)).map(p => isGroup() ? p.name : 'partner');
       b.innerHTML = `<span class="tag"></span><span class="nm"></span><span class="who"></span>`;
       b.querySelector('.tag').textContent = tag;
       b.querySelector('.nm').textContent = name;
-      b.querySelector('.who').textContent = (i === epIndex ? 'you' : '') + (i === epIndex && partnerHere ? ' + ' : '') + (partnerHere ? 'partner' : '');
+      b.querySelector('.who').textContent = [...(i === epIndex ? ['you'] : []), ...here].join(' + ');
       b.onclick = () => playEpisode(i, { announce: true, autoplay: !video.paused });
       li.appendChild(b); ul.appendChild(li);
     });
@@ -742,11 +923,15 @@
   });
 
   function onRemoteEpisode(m) {
-    partner.file = { name: m.name, duration: 0 };
-    partner.presence = 'idle';
+    const P = sender, prev = P.file && P.file.name, mine = myName();
+    P.file = { name: m.name, duration: 0 };
+    P.presence = 'idle';
+    renderPeople();
+    // In a group, only follow someone to the next episode if we were watching the same thing.
+    if (isGroup() && mine && !(prev && sameVideo(prev, mine))) { renderHero(); renderEpisodes(); return; }
     if (!playlist.length) { renderHero(); return; }
     const i = findEpisode(parseTitle(m.name), m.name);
-    if (i < 0) { partner.missing = m.name; renderHero(); renderEpisodes(); return; }
+    if (i < 0) { P.missing = m.name; renderHero(); renderEpisodes(); return; }
     if (i !== epIndex) playEpisode(i, { announce: false, autoplay: !!m.play });
     else { renderHero(); renderEpisodes(); }
   }
@@ -921,16 +1106,39 @@
   webVideo.addEventListener('streamerror', e => streamFail('The stream didn\'t load (' + e.detail + '). The site may block other sites from using it, or the link expired.'));
   vimeo.addEventListener('error', e => setWebMsg('Vimeo: ' + ((e.detail && e.detail.message) || 'this video can\'t be played here (it may be private or not allow embedding).'), true));
 
+  // ---------- people in the room ----------
+  function renderPeople() {
+    const box = $('people'); if (!box) return;
+    box.innerHTML = '';
+    const mine = myName();
+    const chip = (name, st, me) => { const el = document.createElement('span'); if (me) el.className = 'me'; el.textContent = name; if (st) { const x = document.createElement('span'); x.className = 'st'; x.textContent = st; el.appendChild(x); } box.appendChild(el); };
+    const stOf = (file, presence) => file ? (mine && sameVideo(file.name, mine) ? '· with you' : '· ' + describe(file.name, file.title).title) : presence === 'browsing' ? '· looking…' : '';
+    chip(nickOrDefault() + ' (you)', '', true);
+    for (const p of peers.values()) chip(p.name || 'Guest', stOf(p.file, p.presence));
+    box.classList.toggle('hidden', !link);
+  }
+  $('nameInput').value = myNick;
+  $('nameInput').placeholder = nickOrDefault();
+  $('nameInput').addEventListener('change', () => {
+    myNick = $('nameInput').value.trim().slice(0, 24);
+    try { localStorage.setItem('cvp-name', myNick); } catch (_) {}
+    $('nameInput').placeholder = nickOrDefault();
+    if (amHost && members.size) syncRoster(null, null);
+    else if (link) link.send({ type: 'name', name: nickOrDefault(), to: hubIdGuess });
+    renderPeople();
+  });
+
   // ---------- Chat: messages go over the same device-to-device link, kept only in this page ----------
   const chat = { open: false, unread: 0, typingTimer: null, sentTyping: 0, peekTimer: null };
   const EMOJIS = ['❤️', '😂', '😮', '😢', '🔥', '👍', '🍿', '😘'];
   $('chatEmojis').innerHTML = EMOJIS.map(e => `<button type="button">${e}</button>`).join('');
   const clock = t => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   const onlyEmoji = t => /^(\p{Extended_Pictographic}|\p{Emoji_Component}|\u200d|\ufe0f|\s){1,8}$/u.test(t) && !/^[\d#*\s]+$/.test(t);
-  function chatAdd(text, who, at) {
+  function chatAdd(text, who, at, name) {
     const el = document.createElement('div');
     el.className = 'cm ' + who + (onlyEmoji(text) ? ' big' : '');
-    el.textContent = text;
+    if (name) { const n = document.createElement('span'); n.className = 'nm'; n.textContent = name; el.appendChild(n); }
+    el.appendChild(document.createTextNode(text));
     const t = document.createElement('span'); t.className = 't'; t.textContent = clock(at); el.appendChild(t);
     const box = $('chatMsgs');
     const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
@@ -947,21 +1155,23 @@
     if (chat.sentTyping) { link.send({ type: 'typing', on: false }); chat.sentTyping = 0; }
   }
   function chatReceive(m) {
-    chatTyping(false);
+    chatTyping(false, m.from);
     const text = String(m.text || '').slice(0, 500);
     if (!text) return;
-    chatAdd(text, 'them', Date.now());
+    chatAdd(text, 'them', Date.now(), isGroup() ? nameOf(m.from) : '');
     if (!chat.open) {
       chat.unread++; renderChatBadge();
-      const peek = $('chatPeek'); peek.textContent = text; peek.classList.remove('hidden');
+      const peek = $('chatPeek'); peek.textContent = (isGroup() ? nameOf(m.from) + ': ' : '') + text; peek.classList.remove('hidden');
       clearTimeout(chat.peekTimer); chat.peekTimer = setTimeout(() => peek.classList.add('hidden'), 5000);
     }
     if (onlyEmoji(text) && /❤|😘|😍|🥰/.test(text)) floatHearts();
   }
-  function chatTyping(on) {
-    $('chatTyping').textContent = on ? 'Your partner is typing…' : '';
-    clearTimeout(chat.typingTimer);
-    if (on) chat.typingTimer = setTimeout(() => { $('chatTyping').textContent = ''; }, 6000);
+  const typers = new Map(); // id -> timer
+  function chatTyping(on, id = '') {
+    clearTimeout(typers.get(id)); typers.delete(id);
+    if (on) typers.set(id, setTimeout(() => chatTyping(false, id), 6000));
+    const names = [...typers.keys()].filter(i => peers.has(i)).map(i => nameOf(i));
+    $('chatTyping').textContent = !names.length ? '' : !isGroup() ? 'Your partner is typing…' : names.length === 1 ? `${names[0]} is typing…` : `${names.join(', ')} are typing…`;
   }
   function renderChatBadge() { $('chatBadge').textContent = chat.unread > 9 ? '9+' : chat.unread; $('chatBadge').classList.toggle('hidden', !chat.unread); }
   function setChatOpen(open) {
@@ -1017,11 +1227,11 @@
   $('liveTapBtn').onclick = () => { liveVideo.muted = false; liveVideo.play().catch(() => {}); $('liveTap').classList.remove('show'); };
   // Full screen the wrapper (not the video) where possible, so the chat can sit on top.
   $('liveFull').onclick = () => { const w = $('liveWrap'); if (w.requestFullscreen) w.requestFullscreen().catch(() => {}); else if (liveVideo.webkitEnterFullscreen) liveVideo.webkitEnterFullscreen(); };
-  $('liveAsk').onclick = () => { if (link) { link.send({ type: 'share-ask' }); toast('Asked your partner to pause'); } };
+  $('liveAsk').onclick = () => { if (link) { link.send({ type: 'share-ask', to: share.remoteFrom }); toast(isGroup() ? `Asked ${nameOf(share.remoteFrom)} to pause` : 'Asked your partner to pause'); } };
   $('tabStopBtn').onclick = () => share.stop();
   $('tabShareBtn').onclick = async () => {
     const info = $('tabShareInfo');
-    if (!link) { info.textContent = 'Connect with your partner first.'; info.className = 'small warn'; return; }
+    if (!link) { info.textContent = 'Connect with someone first.'; info.className = 'small warn'; return; }
     if (!CVPShare.canShare()) { info.textContent = 'This device can\'t share its screen (phones usually can\'t). Share from a computer, and watch here.'; info.className = 'small warn'; return; }
     if (!media.paused) { suppress(); media.pause(); }
     try {
@@ -1090,7 +1300,8 @@
   let inviteKind = null;
   function announcePick(name, { title = '', how = '' } = {}) {
     if (!link) return;
-    const theirs = partner.file && partner.file.name;
+    if (isGroup()) return groupPick(name, { title, how });
+    const theirs = focus().file && focus().file.name;
     const isYt = name.startsWith('yt:'), isStream = isStreamName(name);
     if (theirs && sameVideo(theirs, name)) { clash = null; link.send(isYt ? { type: 'yt', id: name.slice(3) } : isStream ? { type: 'stream', name } : { type: 'episode', name }); renderHero(); return; }
     if (isStream || theirs) {
@@ -1118,6 +1329,42 @@
     renderHero();
   }
 
+  // In a group nobody has to agree: everyone gets an invite and decides for themselves.
+  // People on the same thing stay in sync with each other; the rest carry on with their own.
+  function groupPick(name, { title = '', how = '' }) {
+    clash = null;
+    const others = [...peers.values()];
+    const isYt = name.startsWith('yt:'), isStream = isStreamName(name);
+    const msgSame = () => isYt ? { type: 'yt', id: name.slice(3) } : isStream ? { type: 'stream', name } : { type: 'episode', name };
+    if (others.every(p => p.file && sameVideo(p.file.name, name))) { link.send(msgSame()); renderHero(); return; }
+    if (!isStream && others.every(p => !p.file)) { link.send({ type: 'episode', name }); renderHero(); return; }
+    const send = t => link && link.send({ type: 'propose', name, title: t || '', how });
+    const known = title || (media.dataset.name === name ? media.dataset.title : '');
+    if (isStream && !known) {
+      let sent = false;
+      const once = () => { if (sent) return; sent = true; send(media.dataset.name === name ? media.dataset.title : ''); };
+      media.addEventListener('loadedmetadata', once, { once: true });
+      setTimeout(once, 3000);
+    } else send(known);
+    toast('Invited everyone to join you 🎉');
+    renderHero();
+  }
+  function onGroupPropose(m) {
+    const P = sender, mine = myName();
+    P.file = { name: m.name, title: m.title || '' }; P.presence = 'idle';
+    renderPeople(); renderHero();
+    const d = describe(m.name, m.title);
+    const yes = () => { link.send({ type: 'answer', accept: true, to: m.from }); followPartner(m.name, m.title); };
+    const no = () => { link.send({ type: 'answer', accept: false, name: mine, title: myTitle(), to: m.from }); };
+    if (mine && sameVideo(mine, m.name)) return;
+    if (!mine && !isStreamName(m.name)) { toast(`${P.name} picked ${nice(m.name, m.title)}. Pick the same file to join them.`); return; }
+    const what = /^a (YouTube|Vimeo) video$|^a video link$/.test(d.title) ? d.title : '“' + d.title + '”';
+    modal('🎉', `${P.name} wants everyone to ${d.verb} something`, `${what}${d.t.kind === 'series' ? ' (' + d.t.key + ')' : ''}${d.what.startsWith('from') ? ' (' + d.sub + ')' : ''}.${mine ? ` You're on ${nice(mine, myTitle())}.` : ''}`, [
+      { text: d.verb === 'listen to' ? 'Join them 🎧' : 'Join them 🎉', primary: true, on: yes },
+      { text: mine ? 'Keep mine' : 'Not now', on: no },
+    ]);
+  }
+
   // Switch to whatever the partner is on.
   function followPartner(name, title) {
     clash = null; closeModal();
@@ -1133,6 +1380,8 @@
   const ytHead = how => how === 'browse' ? 'Your partner found something on YouTube' : how === 'share' ? 'Your partner shared a video' : 'Your partner pasted a link';
   const hostOf = u => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch (_) { return 'a website'; } };
   function onPropose(m) {
+    if (isGroup()) return onGroupPropose(m);
+    const partner = sender;
     partner.file = { name: m.name, title: m.title || '' };
     partner.presence = 'idle';
     const mine = myName();
@@ -1159,6 +1408,12 @@
   }
 
   function onAnswer(m) {
+    if (isGroup()) {
+      const n = nameOf(m.from);
+      toast(m.accept ? `${n} is joining you 🎉` : m.name ? `${n} is staying on ${nice(m.name, m.title)}` : `${n} said "not now"`);
+      return;
+    }
+    const partner = sender;
     if (m.accept) { clash = null; closeModal(); toast('Your partner is joining you 🎉'); renderHero(); return; }
     if (!m.name) { clash = null; closeModal(); toast('Your partner said "not now" 😅 Enjoy it solo for now.'); renderHero(); return; }
     partner.file = { name: m.name, title: m.title || '' };
@@ -1184,8 +1439,9 @@
     renderHero();
   }
   function giveIn() {
+    const partner = focus();
     if (!partner.file) return;
-    link && link.send({ type: 'gave-in' });
+    if (!isGroup()) link && link.send({ type: 'gave-in' });
     followPartner(partner.file.name, partner.file.title);
   }
   $('heroBtn').onclick = giveIn;
@@ -1250,10 +1506,12 @@
     const mine = myName(), mineTitle = myTitle();
     if (!link) {
       const waiting = $('shareCard') && !$('shareCard').classList.contains('hidden');
-      return setHero(waiting ? 'Room open' : 'Not connected', waiting ? 'Waiting for your partner to join…' : 'Create a room, or join your partner\'s', waiting ? 'Share the link or the code below.' : '', { pulse: waiting });
+      return setHero(waiting ? 'Room open' : 'Not connected', waiting ? 'Waiting for people to join…' : 'Create a room, or join one', waiting ? 'Share the link or the code below. Up to ' + MAX_PEOPLE + ' people can join.' : '', { pulse: waiting });
     }
-    if (share.role === 'watching') return setHero('Live from your partner 🖥', 'You\'re watching their screen', share.remoteAudio ? 'With sound. They control play and pause.' : 'No sound is coming through. They need to share a Chrome tab with "tab audio" ticked.', { warn: !share.remoteAudio });
-    if (share.role === 'sharing') return setHero('You\'re sharing 🖥', 'Your partner sees your tab live', share.local && share.local.getAudioTracks().length ? 'With sound. Play and pause on the site as usual.' : 'No sound is being shared. Share a Chrome tab and keep "tab audio" ticked.', { warn: !(share.local && share.local.getAudioTracks().length) });
+    if (share.role === 'watching') return setHero(isGroup() ? `Live from ${nameOf(share.remoteFrom)} 🖥` : 'Live from your partner 🖥', 'You\'re watching their screen', share.remoteAudio ? 'With sound. They control play and pause.' : 'No sound is coming through. They need to share a Chrome tab with "tab audio" ticked.', { warn: !share.remoteAudio });
+    if (share.role === 'sharing') return setHero('You\'re sharing 🖥', isGroup() ? 'Everyone sees your tab live' : 'Your partner sees your tab live', share.local && share.local.getAudioTracks().length ? 'With sound. Play and pause on the site as usual.' : 'No sound is being shared. Share a Chrome tab and keep "tab audio" ticked.', { warn: !(share.local && share.local.getAudioTracks().length) });
+    if (isGroup()) return renderGroupHero(mine, mineTitle);
+    const partner = focus();
     if (clash === 'flavours' && partner.file && mine) {
       return setHero('Oops!', 'Different flavours today 🍦🍕', `You're on ${nice(mine, mineTitle)}, your partner is on ${nice(partner.file.name, partner.file.title)}.`, { button: isAudio(partner.file.name) ? 'Listen to theirs instead' : 'Watch theirs instead' });
     }
@@ -1278,6 +1536,26 @@
     let sub = d.sub;
     if (media === video && partner.file.duration && video.duration && Math.abs(video.duration - partner.file.duration) > 2) { sub += ' · Lengths differ a bit, so this may be a different version.'; }
     return setHero(phrase('You\'re both', d), d.title, sub, { warn: sub.includes('differ') });
+  }
+
+  function renderGroupHero(mine, mineTitle) {
+    const all = [...peers.values()];
+    const n = all.length + 1;
+    if (mine) {
+      const d = describe(mine, mineTitle);
+      const with_ = all.filter(p => p.file && sameVideo(p.file.name, mine));
+      const elsewhere = all.filter(p => !p.file || !sameVideo(p.file.name, mine)).map(p => p.file ? `${p.name} is on ${nice(p.file.name, p.file.title)}` : p.presence === 'browsing' ? `${p.name} is looking for something` : `${p.name} hasn't picked yet`);
+      const kicker = with_.length ? (with_.length === all.length ? `All ${n} of you are ${d.verbing} ${d.what}`.trim() : `You + ${with_.map(p => p.name).join(', ')} ${d.verbing} ${d.what}`.trim()) : `You're ${d.verbing} ${d.what} on your own`.trim();
+      return setHero(kicker, d.title, [d.sub, ...elsewhere].join(' · '), { warn: !with_.length });
+    }
+    const f = focus();
+    if (f.file) {
+      const d = describe(f.file.name, f.file.title);
+      const count = all.filter(p => p.file && sameVideo(p.file.name, f.file.name)).length;
+      return setHero(phrase((count > 1 ? `${count} people are` : `${f.name} is`), d), d.title, d.sub + (isStreamName(f.file.name) ? '' : ' · Find the same file on this device to join in.'), { button: isStreamName(f.file.name) ? 'Join them' : '' });
+    }
+    const browsing = all.filter(p => p.presence === 'browsing').map(p => p.name);
+    return setHero(`Connected · ${n} people`, 'Pick something to play', browsing.length ? `${browsing.join(', ')} ${browsing.length > 1 ? 'are' : 'is'} looking for something…` : 'A movie, a series, music, a YouTube video or a link. Everyone gets an invite.');
   }
 
   async function startRepack(f) {

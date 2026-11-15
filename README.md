@@ -50,6 +50,20 @@ Some sites only play inside their own player, so a link can't be pulled out. For
 
 Once you're connected, a 💬 button sits in the corner on every tab. Messages go over the same device-to-device link as play and pause, and live only in the open page: nothing is saved anywhere, and they're gone when you close it. It shows when your partner is typing, an unread count, a preview of new messages, and quick emoji. In the "Share a tab" full screen view the chat stays on top.
 
+## Groups (more than two people)
+
+A room holds up to 8 people. The person who creates the room is the hub: everyone else connects to them, and they pass play, pause, chat and picks on to the others. Video files still play from each person's own device.
+
+- Everyone sets a name (under the room code). The banner, chat, popups and the people list use it.
+- With just two people, everything works exactly like the couple version, including "watch theirs or keep yours" and "different flavours".
+- In a group nobody has to agree. When someone picks something, everyone gets an invite and decides for themselves. People on the same thing stay in sync with each other; anyone who keeps their own carries on separately.
+- Share a tab sends the picture to everyone. Each viewer gets their own stream from the sharer, so the sharer's upload speed limits how many can watch smoothly.
+- If someone refreshes or their network drops, they rejoin as the same person. If the room creator refreshes, everyone reconnects by themselves. The room only closes when the creator leaves.
+
+## Many rooms at the same time
+
+Rooms don't share anything. Each one has its own random 6-letter code (about 880 million possibilities), and play, pause and chat go directly between the devices in that room. The only shared piece is PeerJS's free public server, which introduces devices to each other at the start (and relays when two devices can't connect directly). If it's briefly unreachable, the app keeps retrying instead of giving up.
+
 ## Picking different things
 If one of you picks something while the other is on something else, the other gets a popup: **watch theirs or keep mine?**
 - Watch theirs: you both switch (YouTube switches automatically; for files, the matching episode/song is picked if you have it, otherwise you're asked to pick it).
